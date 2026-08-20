@@ -63,7 +63,7 @@ powershell -ExecutionPolicy Bypass -File build-mods.ps1
 
 ## 更新日志
 
-### a0.8.6.1（最新）
+### a0.8.7.0（最新）
 - 调整设置顺序：显示搜索历史、选择后清除输入 置于暂停设置之前
 - 修复历史记录折叠时，搜索栏与方块选单之间的黑色边框
 - 更新模组简介与 README
