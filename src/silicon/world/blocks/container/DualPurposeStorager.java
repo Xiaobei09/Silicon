@@ -37,6 +37,12 @@ public class DualPurposeStorager extends StorageBlock {
         this.outputsLiquid = true;
         this.update = true;
         this.displayFlow = false;
+        // 关键：StorageBlock 默认 drawCached=true 且 drawDynamic=false，会导致 draw() 只在区块缓存时被调用，
+        // 液体动态效果不会每帧重绘。而 drawCached 与 drawDynamic 同时为 true 时，方块会被画进缓存缓冲区
+        // 又每帧再画一次，半透明液体双重混合导致过饱和（周围放/拆方块触发重新缓存时尤为明显）。
+        // 因此对齐原版液体方块默认值：drawCached=false + drawDynamic=true，仅每帧动态绘制一次。
+        this.drawCached = false;
+        this.drawDynamic = true;
     }
 
     @Override
@@ -97,9 +103,10 @@ public class DualPurposeStorager extends StorageBlock {
 
         @Override
         public void draw() {
-            // 1. 底座贴图
             Draw.rect(DualPurposeStorager.this.bottomRegion, x, y);
-            // 2. 有液体时绘制流动液面（白色条纹滚动 + 液体颜色）
+
+            // 与原版 LiquidRouter 完全一致：drawTiledFrames 用 fluidFrames 动画帧画出条纹流动液面，
+            // alpha 直接用填充比例（液体多则浓、少则淡），不额外做保底，保证与原版渐变一致。
             if (liquids.currentAmount() > LIQUID_THRESHOLD) {
                 Liquid liq = liquids.current();
                 if (liq != null) {
@@ -107,8 +114,7 @@ public class DualPurposeStorager extends StorageBlock {
                             liquids.currentAmount() / liquidCapacity);
                 }
             }
-            // 3. 顶盖贴图（中心挖空，液体透过中心显示）
-            //    注意：drawTiledFrames 会把 Draw.color 设为液体色，这里必须重置，否则顶盖会被染色
+
             Draw.color();
             Draw.rect(DualPurposeStorager.this.topRegion, x, y);
         }
