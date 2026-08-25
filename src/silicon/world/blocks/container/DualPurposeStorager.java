@@ -1,6 +1,7 @@
 package silicon.world.blocks.container;
 
 import arc.Core;
+import arc.graphics.Color;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.TextureRegion;
 import mindustry.gen.Building;
@@ -115,7 +116,7 @@ public class DualPurposeStorager extends StorageBlock {
                 }
             }
 
-            Draw.color();
+            Draw.color(Color.white);
             Draw.rect(DualPurposeStorager.this.topRegion, x, y);
         }
 
