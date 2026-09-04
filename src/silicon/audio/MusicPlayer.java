@@ -661,8 +661,8 @@ public class MusicPlayer {
         int[] scope = currentScope();
         int size = (scope == null) ? tracks.size : scope.length;
         if (size == 0) return false;
-        // 当前曲目在当前作用域内的位置；若不在（如新增曲目/换专辑）则从头
-        int pos = 0;
+        // 当前曲目在当前作用域内的位置；若不在（如新增曲目/换专辑）则视为 -1，由下式统一处理
+        int pos = -1;
         if (current >= 0) {
             if (scope == null) pos = current;
             else {
@@ -696,7 +696,7 @@ public class MusicPlayer {
             int nxt = cur < 0 ? (delta > 0 ? 0 : order.length - 1) : ((cur + delta) % size + size) % size;
             nextPos = order[nxt];
         } else {
-            int nxt = ((pos + delta) % size + size) % size;
+            int nxt = pos < 0 ? (delta > 0 ? 0 : size - 1) : ((pos + delta) % size + size) % size;
             nextPos = (scope == null) ? nxt : scope[nxt];
         }
         MusicTrack from = currentTrack();
