@@ -485,3 +485,27 @@ owner 恢复时 `resumeRemoteVoice` 只 `setPaused(id,false)`，声源早已不�
 
 **产物校验**：`gradlew jar` BUILD SUCCESSFUL；Silicon09Desktop.jar MD5=bf47bb41252b65eaeaf4dcb57211decf
 （本机无 Android SDK，`deploy` 的 jarAndroid 子任务跳过，桌面产物不受影响）。未升版。
+
+## 第 29 轮（2026-09-04）支持：flac 本机播放（含拖动/倒放/A-B）
+
+**背景**：用户问「能支持 flac 吗」。此前结论「flac 无 Soloud 解码器、直接创建声源会原生崩溃」基于旧版 arc；用独立
+进程（`build/flactest/FlacTest*.java`，`ArcNativesLoader.load()` + `new Audio()`，游戏同款 arc64.dll natives，
+SoLoud 20260203/MiniAudio）逐路径实测，推翻旧结论：
+
+| 路径 | 解码 | 播放 | seek | 结论 |
+|------|------|------|------|------|
+| `streamLoadFile`（.flac 扩展名流式） | ✓ len 精确 | ✓ | **✗ idSeek 后位置归 0** | 与部分 mp3 流同症：流式 seek 原生损坏 |
+| `wavLoadFile`/`wavLoadBytes`（全量同步） | ✓ | ✓ | **✓ 精确**（seek 2.0s→2.31s） | 全量样本进内存，seek 逐样本可靠 |
+| `streamLoadBytes`（远程共享字节流） | ✓ | ✓ | —（远程无拖动需求） | 远程 flac 可直接共享播放 |
+| `Music.create` 长度探测 | ✓ 60.48s | — | — | 时长/滑杆解锁无需额外处理 |
+
+**实现**（`MusicPlayer.java`）：
+1. `DECODABLE_EXT` 增加 `flac`：本机导入、时长探测、远程共享全部解锁。
+2. `beginPlayback` flac 分支：探测时长 ≤600s（全量 PCM 约 210MB 内存上限）→ `new Sound()` +
+   `load(file.readBytes(), false)`（同步 `wavLoadBytes`，handle 立即有效），后续 play/seek/pause 流程零改动；
+   探测失败或超长 → 退回流式播放并预置新字段 `streamSeekBroken`。
+3. `isSeekUnreliable()` = `seekUnreliable || streamSeekBroken`：超长 flac 播放时拖动/±10s/恢复回位统一预禁
+   （不触发「校验失败→停播」流程，直接静默禁拖）；`seek()` 守卫与 `resume()` 的 deferSeek 守卫改用该 getter。
+4. 双语 bundle `musicplayer.undecodable` 文案更新为「仅支持 ogg/mp3/wav/flac」；类注释同步。
+
+**产物校验**：`gradlew jar` BUILD SUCCESSFUL；Silicon09Desktop.jar MD5=217f3669f5c6284391a1a3032c4610ac。未升版。
