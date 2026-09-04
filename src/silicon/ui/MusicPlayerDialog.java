@@ -505,9 +505,9 @@ public class MusicPlayerDialog extends BaseDialog {
             MusicBar.MarqueeLabel name = new MusicBar.MarqueeLabel(
                     (isCurrent ? "[accent]> " : "") + safeName, Styles.outlineLabel);
             name.setColor(isCurrent ? Pal.accent : Color.white);
-            name.maxPref = Scl.scl(250f);
+            name.maxPref = 0f;
             name.clicked(() -> { MusicPlayer.play(idx); rebuildRows(); });
-            row.add(name).width(Scl.scl(250f)).height(Scl.scl(40f)).growX().padRight(10f);
+            row.add(name).width(Scl.scl(250f)).height(Scl.scl(44f)).growX().padRight(10f);
             // 类型标签独立固定宽列，右对齐 —— 与曲名分离，列宽稳定不致长名挤压
             row.add("[gray](" + Core.bundle.get(t.typeKey) + ")").
                     width(Scl.scl(116f)).right().color(Color.gray);
