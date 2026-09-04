@@ -581,7 +581,7 @@ public class MusicPlayer {
                 if (target <= 0f) {
                     stopLocal();
                     bcast("stop");
-                } else if (localVoiceId >= 0) {
+                } else if (localVoiceId >= 0 && Core.audio.isPlaying(localVoiceId) && Time.time - lastBlip >= 0.3f) {
                     SoloudBridge.seek(localVoiceId, Math.max(0f, target));
                 }
             }
