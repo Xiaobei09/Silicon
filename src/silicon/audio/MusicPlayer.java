@@ -675,7 +675,6 @@ public class MusicPlayer {
         stopLocal();
         int nextPos;
         if (loopMode == LOOP_RANDOM) {
-            // 真随机：每次独立抽签；作用域多于 1 首时避免与当前曲连续相同
             if (size == 1) {
                 nextPos = (scope == null) ? 0 : scope[0];
             } else {
@@ -687,6 +686,8 @@ public class MusicPlayer {
                 }
                 nextPos = pick;
             }
+            // 防御：若随机抽中越界或 -1，回退到首曲
+            if (nextPos < 0 || nextPos >= tracks.size) nextPos = (scope == null) ? 0 : scope[0];
         } else if (loopMode == LOOP_SHUFFLE) {
             int[] order = ensureShuffleOrder();
             size = order.length;
