@@ -23,7 +23,8 @@ import static mindustry.Vars.player;
  * 音乐播放器核心（本机播放 + 曲目库 + 本地缓存 + 启用开关 + 持久化）。
  * <p>
  * - 曲目库：内置原版音乐（INTERNAL）/ 网络 URL / 本地磁盘路径（LOCAL）
- * - 所有曲目统一解析为本地弧音频 {@link arc.files.Fi} 后经 {@link Sound#createStream} 播放，
+ * - 曲目统一解析为本地弧音频 {@link arc.files.Fi} 后经 {@link Sound#createStream} 流式播放（3D 定位）；
+ *   flac 例外：流式 seek 原生损坏，短曲改走全量解码（{@code wavLoadBytes}）保证拖动/倒放精确（见 beginPlayback）
  *   从而支持 {@code Sound.at} 的 3D 定位（声源随播放者移动、听者按距离远近衰减）。
  * - 「本地缓存优先复用」：URL / 二进制共享写入 cache/music/，同 cacheHash 直接复用不再走网络。
  * - 「是否启用」总开关（双生效：本机不能播 + 不接收/不听别人）。
@@ -55,7 +56,7 @@ public class MusicPlayer {
 
     private static final Pattern EXT_WHITELIST = Pattern.compile("(?i)\\.(ogg|mp3|wav|flac|m4a|wma|aac|opus)$");
     /** Soloud 内置解码器可解码的格式（stb_vorbis=ogg / dr_mp3=mp3 / stb_wav=wav）。flac/m4a/wma/aac/opus 只能做字节共享，不能在本机解码播放（会原生崩溃） */
-    private static final Pattern DECODABLE_EXT = Pattern.compile("(?i)\\.(ogg|mp3|wav)$");
+    private static final Pattern DECODABLE_EXT = Pattern.compile("(?i)\\.(ogg|mp3|wav|flac)$");
     /** 时长探测的文件大小上限（字节）：超过则跳过 Music.create 解码读取，避免大文件解码卡顿/占用过多内存 */
     private static final long LENGTH_PROBE_SIZE_LIMIT = 64L * 1024 * 1024;
     /** 读时长而不拷贝时允许的文件大小上限：Music.create(f) 只解 header 求长度、不整文件解码，
@@ -171,6 +172,9 @@ public class MusicPlayer {
     private static int seekVerifyFails = 0;
     /** 当前声源 seek 已被判定不可靠（校验失败置位）：该曲禁用拖动/±10s，resume 不再尝试 seek，播完不再推进 */
     private static boolean seekUnreliable = false;
+    /** 超长 flac 走流式播放（全量解码超内存上限）时的预置标记：流式 seek 原生损坏（idSeek 后位置归 0），
+     *  建源时直接禁用拖动，而非等校验失败停播（2026-09-04 实测，见 beginPlayback flac 分支注释） */
+    private static boolean streamSeekBroken = false;
 
     /** 当前本机声源是否曾确认进入播放态（用于区分「自然播完可推进」与「新声源启动即失败」：
      *  后者不得静默跳到别的曲目（曾因误判把本地曲跳成内置曲），应停播并留日志 */
@@ -937,6 +941,7 @@ public class MusicPlayer {
         MusicTrack t = tracks.get(index);
         // 新声源重置 seek 可靠性判定（换曲/重播给新的机会）
         seekUnreliable = false;
+        streamSeekBroken = false;
         seekVerifyAt = -1f;
         seekVerifyTarget = -1f;
         seekVerifyFails = 0;
@@ -958,11 +963,12 @@ public class MusicPlayer {
             toast("musicplayer.cannotPlay", t == null ? "?" : t.name);
             return;
         }
-        // flac/m4a/wma/aac/opus 等 Soloud 无内置解码器：以「最终可播放文件」的扩展名判定（缓存文件已按真实内容头落盘），
+        // m4a/wma/aac/opus 等 Soloud 无内置解码器：以「最终可播放文件」的扩展名判定（缓存文件已按真实内容头落盘），
         // 直接创建声源会原生崩溃 → 阻止并在日志说明（仅排除本机解码，仍可分享字节给他人）
+        // （flac 已实测可解码：短曲走全量加载，见下方 flac 分支）
         if (t.isUrl() || t.isLocal()) {
             if (!isDecodablePath(file.absolutePath())) {
-                Log.warn("Blocked play of undecodable " + t.name + " (Soloud only decodes ogg/mp3/wav)");
+                Log.warn("Blocked play of undecodable " + t.name + " (Soloud only decodes ogg/mp3/wav/flac)");
                 playing = false;
                 localVoiceId = -1;
                 // UI 反馈：不可解码格式此前静默无反应（问题15「不能播放」无任何提示）
@@ -984,7 +990,31 @@ public class MusicPlayer {
                 SiliconLog.log("Block playback of non-ASCII path: " + file.name());
                 return;
             }
-            snd = Sound.createStream(file);
+            // flac 实测（2026-09-04，独立进程用游戏同款 arc64.dll natives 验证）：
+            // 流式加载可解码/可播放，但 idSeek 后位置归 0（流式 seek 原生损坏，与部分 mp3 流同症）；
+            // 全量解码（wavLoadBytes，同步、整曲 PCM 进内存）seek 精确，倒放/A-B 完全可用。
+            // 策略：探测时长 ≤600s（PCM 约 210MB 内存上限）走全量加载；超长或探测失败的 flac
+            // 退回流式播放并预置 streamSeekBroken（滑杆/±10s 禁用、恢复不回位，也不触发校验停播）。
+            boolean fullLoad = file.absolutePath().toLowerCase().endsWith(".flac");
+            if (fullLoad) {
+                float plen = readLengthFrom(file);
+                if (plen <= 0f || plen > 600f) {
+                    fullLoad = false;
+                    streamSeekBroken = true;
+                }
+            }
+            if (fullLoad) {
+                snd = new Sound();
+                snd.load(file.readBytes(), false); // false=全量解码（wavLoadBytes），同步完成
+                if (snd.getLength() <= 0f) throw new Exception("flac full-load failed (length<=0)");
+            } else {
+                snd = Sound.createStream(file);
+            }
+            if (snd == null) {
+                SiliconLog.log("createSound returned null for " + file.name());
+                toast("musicplayer.playFail", t == null ? "?" : t.name);
+                return;
+            }
             // 修复（2026-09-03）：把音乐声源挂到 musicBus 而非默认 soundBus——游戏 ESC 暂停时
             // SoundControl 只 setPaused(soundBus)，音乐挂 musicBus 即可在暂停菜单下继续发声，
             // 实现「音乐完全独立于游戏暂停」（需求 Fix 9）。
@@ -1066,7 +1096,7 @@ public class MusicPlayer {
             // 「外部暂停再播放立即停止/跳走」）。窗口过期仍未恢复则停（不自动跳内置/其它曲）。
             if (wasPlayingBeforePause) resumeGraceUntil = Time.time + RESUME_GRACE;
             beginPlayback(current);
-            if (playing && seekTo > 0.05f && !seekUnreliable) {
+            if (playing && seekTo > 0.05f && !isSeekUnreliable()) {
                 // 恢复播放通常要 seek 到暂停位置，但刚创建的新流式声源可能尚未就绪；
                 // 实测此时立刻 idSeek 会在原生 arc64.dll 崩溃（Soloud 内部锁断言，见 hs_err_pid*）。
                 // 推迟到声源确认存活后应用（tickLocal 内 pendingResumeSeek 处理）。
@@ -1329,7 +1359,7 @@ public class MusicPlayer {
         if (f == null || !f.exists()) return -1f;
         String key = f.absolutePath();
         if (!isAsciiPath(key)) return -1f; // 非 ASCII 路径不读（防 Soloud 内部锁崩溃），由 ASCII 缓存补齐
-        if (!isDecodablePath(key)) return -1f; // flac/m4a/wma/aac/opus 无 Soloud 解码器，探测会原生失败 → 跳过
+        if (!isDecodablePath(key)) return -1f; // m4a/wma/aac/opus 无 Soloud 解码器，探测会原生失败 → 跳过（flac 已实测可探测）
         if (f.length() > LENGTH_READ_SIZE_LIMIT) {
             Log.warn("[SiliconMusic] file too large for length probe: " + f.name() + " (" + f.length() + " bytes)");
             return -1f;
@@ -1418,8 +1448,8 @@ public class MusicPlayer {
     public static void seek(float seconds) {
         if (Float.isNaN(seconds) || Float.isInfinite(seconds)) seconds = 0f;
         if (seconds < 0f) seconds = 0f;
-        // 该声源 seek 已被判不可靠（此前校验失败）：忽略一切拖动/快进快退，避免反复落入错误位置
-        if (seekUnreliable) return;
+        // 该声源 seek 已被判不可靠（此前校验失败或超长 flac 流式预置）：忽略一切拖动/快进快退，避免反复落入错误位置
+        if (isSeekUnreliable()) return;
         // 夹取在轨道末尾前 0.5 秒内，防止 seek 到末尾导致流立即结束触发跳歌
         float len = trackLength();
         // 修复：对「真实时长未知(-1)」或「异常大值(>12h)」的外部歌曲，不按假长度夹取，
@@ -1461,7 +1491,7 @@ public class MusicPlayer {
 
     /** 当前声源的进度定位（seek）是否已被判定不可靠（UI 据此禁用拖动/快进快退） */
     public static boolean isSeekUnreliable() {
-        return seekUnreliable;
+        return seekUnreliable || streamSeekBroken;
     }
 
     /** 游戏内 UI 提示（音频层无场景依赖，仅在客户端且 UI 就绪时弹出；失败静默） */
