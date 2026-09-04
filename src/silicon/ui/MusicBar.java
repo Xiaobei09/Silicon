@@ -379,8 +379,8 @@ public class MusicBar {
             super(text, style);
             setWrap(false);
             setEllipsis(false);
-            // 水平左对齐 + 垂直居中：在固定的行高内文本垂直居中显示，避免行高偏紧时文本上半部分被剪裁
-            setAlignment(Align.left | Align.center);
+            // 中心对齐：在固定的行高内文本居中显示
+            setAlignment(Align.center);
         }
 
         @Override
