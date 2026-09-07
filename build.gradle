@@ -67,11 +67,6 @@ dependencies{
     compileOnly mindustryVersion == "be" ? "Anuken:MindustryBuilds:latest" : "Anuken:Mindustry:$mindustryVersion"
 //    compileOnly "com.github.Anuken.Arc:arc-core:$mindustryVersion"
 //    compileOnly "com.github.Anuken.Mindustry:core:$mindustryVersion"
-
-    // —— 纯 Java 音视频解码（不依赖外部 ffmpeg，覆盖更多格式）——
-    // 视频容器音轨提取（JCodec 纯 Java demux，mp4/mkv/webm/mov 等仅提音频轨）—— 不依赖外部套件
-    implementation "org.jcodec:jcodec:0.2.5"
-    implementation "org.jcodec:jcodec-javase:0.2.5"
 }
 
 tasks.register('jarAndroid') {

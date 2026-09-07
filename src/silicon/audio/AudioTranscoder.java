@@ -12,16 +12,15 @@ import java.util.concurrent.*;
  * 音频/视频 扩展格式转码器 —— 把 Soloud 原生不支持的格式（flac/m4a/wma/aac/opus/mp4/mkv/webm/avi/mov 等）
  * 就地转码为 Soloud 可直接播放的 ogg/wav，供本机播放使用。仅提取音频轨（-vn），不处理视频画面。
  * <p>
- * 策略（方式越多越好，覆盖桌面+Android，不依赖外部套件优先）：
+ * 策略（方式越多越好，覆盖桌面+Android，不依赖外部套件优先，不增加体积）：
  * <ul>
- *   <li>1. 直接 Soloud 原生（ogg/mp3/wav）—— 已可解码的免转码，零开销</li>
- *   <li>2. 系统 ffmpeg / avconv（-vn -c:a libvorbis / pcm_s16le）—— 覆盖最广，音视频均可，外部套件</li>
- *   <li>3. Android MediaExtractor + MediaCodec（反射，PCM→wav）—— Android 系统级，纯系统 API 无外部</li>
- *   <li>4. JCodec 纯 Java demux（MP4/MOV/MKV 等容器解析，NIOUtils+MP4Util）—— 纯 Java，不依赖外部</li>
- *   <li>5. javax.sound.sampled AudioSystem（SPI，mp3/ogg/flac 部分）—— 纯 Java，不依赖外部</li>
+ *   <li>1. 直接 Soloud 原生（ogg/mp3/wav）—— 已可解码的免转码，零开销，零体积</li>
+ *   <li>2. Android MediaExtractor + MediaCodec（反射，PCM→wav）—— Android 系统级，纯系统 API，零体积</li>
+ *   <li>3. javax.sound.sampled AudioSystem（JDK 自带，wav/aiff/au，部分 SPI 扩展 mp3）—— 纯 Java，零体积</li>
+ *   <li>4. 系统 ffmpeg / avconv（-vn -c:a libvorbis / pcm_s16le）—— 覆盖最广，音视频均可，外部套件，仅作最后兜底</li>
  *   <li>转码结果缓存于 cache/music/&lt;hash&gt;_t.ogg（或 .wav），命中复用不重复转码</li>
  *   <li>任意一步失败仅日志，不抛异常，调用方回退为“不可播”toast</li>
- *   <li>优先纯 Java/系统 API，不依赖外部套件即可覆盖常见格式；外部 ffmpeg 仅作最后广覆盖兜底</li>
+ *   <li>优先纯 Java/系统 API（零体积），不依赖外部套件即可覆盖常见格式；外部 ffmpeg 仅作最后广覆盖兜底，轻量不增包体</li>
  * </ul>
  * 线程：转码为同步阻塞（带超时），由调用方（MusicPlayer.beginPlayback）在主线程触发；
  * 文件通常 &lt;200MB，转码 5-15s 内完成，若超时则放弃并提示。
@@ -109,16 +108,15 @@ public class AudioTranscoder {
             if (!maybeMedia) return null;
         }
 
-        // 依次尝试：ffmpeg/avconv -> Android MediaExtractor -> JCodec 纯 Java demux -> Java AudioSystem
-        Fi out = tryFfmpeg(src, hash, ".ogg", true);
-        if (out != null) return out;
-        out = tryFfmpeg(src, hash, ".wav", false);
-        if (out != null) return out;
-        out = tryAndroidMediaExtractor(src, hash);
-        if (out != null) return out;
-        out = tryJCodec(src, hash);
+        // 依次尝试：Android 系统 -> Java AudioSystem（纯 Java零体积）-> ffmpeg 外部兜底
+        // 纯 Java/系统优先，不增加包体；外部仅最后尝试
+        Fi out = tryAndroidMediaExtractor(src, hash);
         if (out != null) return out;
         out = tryJavaAudioSystem(src, hash);
+        if (out != null) return out;
+        out = tryFfmpeg(src, hash, ".ogg", true);
+        if (out != null) return out;
+        out = tryFfmpeg(src, hash, ".wav", false);
         return out;
     }
 
@@ -404,45 +402,6 @@ public class AudioTranscoder {
             return null; // 非 Android 环境
         } catch (Exception e) {
             Log.warn("[SiliconMusic] Android MediaExtractor transcode failed for " + src.name() + ": " + e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * JCodec 纯 Java 回退：视频容器（mp4/mov/mkv/webm/avi 等）demux 提取音频轨后写 wav。
-     * 通过反射调用，避免在非桌面/无 JCodec 环境编译失败；桌面端 JCodec 已作为 implementation 依赖。
-     * 支持常见容器：mp4/mov/m4a/m4v/mkv/avi/flv/webm 等的音频轨（AAC/MP3/PCM）。
-     */
-    private static Fi tryJCodec(Fi src, String hash) {
-        try {
-            Class<?> mp4UtilClass = Class.forName("org.jcodec.containers.mp4.MP4Util");
-            Class<?> demuxerClass = Class.forName("org.jcodec.containers.mp4.demux.MP4Demuxer");
-            Class<?> frameClass = Class.forName("org.jcodec.common.model.Packet");
-            // 快速嗅探：仅对视频/MP4 家族尝试，避免对纯音频做无谓 demux
-            String low = src.name().toLowerCase();
-            if (!low.endsWith(".mp4") && !low.endsWith(".m4a") && !low.endsWith(".m4v") && !low.endsWith(".mov")
-                    && !low.endsWith(".mkv") && !low.endsWith(".webm") && !low.endsWith(".avi") && !low.endsWith(".flv")
-                    && !low.endsWith(".3gp") && !low.endsWith(".ts") && !low.endsWith(".mts")) return null;
-            File srcFile = new File(src.absolutePath());
-            if (!srcFile.exists() || srcFile.length() == 0) return null;
-            // 使用 NIOUtils.readableChannel + MP4Util原子解析校验是否为 MP4 容器
-            Class<?> nioUtilsClass = Class.forName("org.jcodec.common.io.NIOUtils");
-            Object channel = nioUtilsClass.getMethod("readableChannel", File.class).invoke(null, srcFile);
-            Object atoms = null;
-            try {
-                atoms = mp4UtilClass.getMethod("getRootAtoms", Class.forName("java.nio.channels.SeekableByteChannel")).invoke(null, channel);
-            } finally {
-                try { nioUtilsClass.getMethod("closeQuietly", Class.forName("java.io.Closeable")).invoke(null, channel); } catch (Exception ignored) {}
-            }
-            if (atoms == null) return null;
-            // 简易成功探测：MP4 容器校验通过即视为可解，实际音频提取走 Java AudioSystem/ffmpeg 更稳
-            // 此处仅作为“方式”占位，返回 null 让后续 Java AudioSystem 尝试，避免在此完整实现音频解码
-            // 真正的 JCodec 音频解码需结合 AudioCodec + 转码，此处保留扩展点
-            return null;
-        } catch (ClassNotFoundException e) {
-            return null; // JCodec 未打包（如 Android 精简包）
-        } catch (Exception e) {
-            Log.warn("[SiliconMusic] JCodec transcode failed for " + src.name() + ": " + e.getMessage());
             return null;
         }
     }
