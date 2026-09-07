@@ -322,7 +322,7 @@ public class MusicBar {
         });
         seekBar.changed(() -> {
             float len = MusicPlayer.trackLength();
-            if (!userSeek[0] && len > 0f && len < 12f * 3600f) {
+            if (!userSeek[0] && len > 0f && len < 12f * 3600f && MusicPlayer.canSeek()) {
                 userSeek[0] = true;
                 MusicPlayer.seek(seekBar.getValue() * len);
                 lastShown[0] = seekBar.getValue();
