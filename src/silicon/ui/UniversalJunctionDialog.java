@@ -484,7 +484,7 @@ public class UniversalJunctionDialog extends BaseDialog {
                 t.addListener(new HandCursorListener());
                 t.margin(6f);
                 t.touchable = Touchable.enabled;
-                t.add("@universal-junction.dir" + dir).style(Styles.outlineLabel).name("statement-name").color(color).padRight(8f);
+                t.add("@universal-junction.dir" + dir).style(Styles.outlineLabel).name("statement-name").color(color).padRight(12f);
             }).growX().height(38f);
 
             row();
@@ -547,7 +547,7 @@ public class UniversalJunctionDialog extends BaseDialog {
                 t.color.set(color);
                 t.margin(6f);
                 t.touchable = Touchable.disabled;
-                t.add("@universal-junction.dir" + dir).style(Styles.outlineLabel).color(color).padRight(8f);
+                t.add("@universal-junction.dir" + dir).style(Styles.outlineLabel).color(color).padRight(12f);
             }).growX().height(38f);
             ghost.setSize(getWidth(), getHeight());
             ghost.touchable = Touchable.disabled;

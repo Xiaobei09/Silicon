@@ -171,9 +171,9 @@ public class MusicPlayerDialog extends BaseDialog {
         // —— 主控制条：上一首 / 快退 / 播放暂停 / 快进 / 下一首（图标按钮，高度统一） ——
         cont.table(ctrl -> {
             ctrl.button(Icon.leftOpen, Styles.flati, MusicPlayer::prev)
-                    .growX().height(Scl.scl(48f)).padRight(2f);
+                    .growX().height(Scl.scl(48f)).padRight(4f);
             ctrl.button(Icon.leftSmall, Styles.flati, () -> MusicPlayer.seekRelative(-10f))
-                    .growX().height(Scl.scl(48f)).pad(2f);
+                    .growX().height(Scl.scl(48f)).pad(4f);
             ImageButton pp = new ImageButton(MusicPlayer.isPlaying() ? Icon.pause : Icon.play, Styles.flati);
             pp.resizeImage(Scl.scl(26f));
             pp.getImage().setColor(MusicPlayer.isPlaying() ? Pal.accent : Color.white);
@@ -236,8 +236,8 @@ public class MusicPlayerDialog extends BaseDialog {
                 vp.defaults().pad(2f);
                 arc.scene.ui.Image volIcon = new arc.scene.ui.Image(Icon.chat);
                 volIcon.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("音量 0-1000%")));
-                vp.add(volIcon).size(Scl.scl(14f)).padRight(2f);
-                vp.add(Core.bundle.get("musicplayer.volume")).left().width(Scl.scl(42f)).padRight(2f);
+                vp.add(volIcon).size(Scl.scl(14f)).padRight(6f);
+                vp.add(Core.bundle.get("musicplayer.volume")).left().width(Scl.scl(42f)).padRight(6f);
                 Slider vol = new Slider(0f, 1000f, 1f, false);
                 vol.setValue(pctToVol(gainToPct(MusicPlayer.volume())));
                 final arc.scene.ui.Label volVal = new arc.scene.ui.Label(pctText(gainToPct(MusicPlayer.volume())), Styles.outlineLabel);
@@ -262,8 +262,8 @@ public class MusicPlayerDialog extends BaseDialog {
                 sp.defaults().pad(2f);
                 arc.scene.ui.Image spdIcon = new arc.scene.ui.Image(Icon.rightSmall);
                 spdIcon.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("倍速 1/16-16x")));
-                sp.add(spdIcon).size(Scl.scl(14f)).padRight(2f);
-                sp.add(Core.bundle.get("musicplayer.speed")).left().width(Scl.scl(38f)).padRight(2f);
+                sp.add(spdIcon).size(Scl.scl(14f)).padRight(6f);
+                sp.add(Core.bundle.get("musicplayer.speed")).left().width(Scl.scl(38f)).padRight(6f);
                 Slider spd = new Slider(0f, 1f, 0.001f, false);
                 spd.setValue(speedToCursor(MusicPlayer.speed()));
                 final arc.scene.ui.Label spdVal = new arc.scene.ui.Label(formatSpeed(MusicPlayer.speed()), Styles.outlineLabel);
@@ -289,8 +289,8 @@ public class MusicPlayerDialog extends BaseDialog {
             abRow.defaults().pad(2f);
             arc.scene.ui.Image abIcon = new arc.scene.ui.Image(Icon.book);
             abIcon.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("A-B 区间重复")));
-            abRow.add(abIcon).size(Scl.scl(14f)).padRight(2f);
-            abRow.add(Core.bundle.get("musicplayer.ab")).left().width(Scl.scl(76f));
+            abRow.add(abIcon).size(Scl.scl(14f)).padRight(6f);
+            abRow.add(Core.bundle.get("musicplayer.ab")).left().width(Scl.scl(76f)).padRight(6f);
             final arc.scene.ui.Label abStatus = new arc.scene.ui.Label(abStatusText(), Styles.outlineLabel);
             abStatus.setColor(MusicPlayer.hasAb() ? Pal.accent : Color.lightGray);
             final String[] lastAbTxt = {abStatusText()};
@@ -322,7 +322,7 @@ public class MusicPlayerDialog extends BaseDialog {
         cont.table(bottom -> {
             arc.scene.ui.Image botIcon = new arc.scene.ui.Image(Icon.music);
             botIcon.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("播放控制")));
-            bottom.add(botIcon).size(Scl.scl(14f)).padRight(4f);
+            bottom.add(botIcon).size(Scl.scl(14f)).padRight(8f);
             TextButton loop = new TextButton(loopModeText(), Styles.flatBordert);
             loop.getLabel().setWrap(false);
             loop.getLabel().setEllipsis(false);
@@ -357,14 +357,14 @@ public class MusicPlayerDialog extends BaseDialog {
             more.defaults().pad(2f);
             arc.scene.ui.Image shareIcon = new arc.scene.ui.Image(Icon.chat);
             shareIcon.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("共享给他人")));
-            more.add(shareIcon).size(Scl.scl(12f)).padRight(2f);
+            more.add(shareIcon).size(Scl.scl(12f)).padRight(6f);
             CheckBox share = new CheckBox(Core.bundle.get("musicplayer.share"));
             share.setChecked(MusicPlayer.isShareEnabled());
             share.changed(() -> MusicPlayer.setShareEnabled(share.isChecked()));
             more.add(share).left().growX();
             arc.scene.ui.Image enIcon = new arc.scene.ui.Image(Icon.ok);
             enIcon.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("总开关")));
-            more.add(enIcon).size(Scl.scl(12f)).padRight(2f);
+            more.add(enIcon).size(Scl.scl(12f)).padRight(6f);
             CheckBox enable = new CheckBox(Core.bundle.get("musicplayer.enable"));
             enable.setChecked(MusicPlayer.isEnabled());
             enable.changed(() -> MusicPlayer.setEnabled(enable.isChecked()));
@@ -388,7 +388,7 @@ public class MusicPlayerDialog extends BaseDialog {
             try { String v = Core.bundle.get("musicplayer.search"); if (v != null && !v.contains("??")) hint = v; } catch (Exception ignored) {}
             search.setMessageText(hint);
             search.changed(() -> { filterText = search.getText(); rebuildRows(); });
-            s.image(Icon.zoom).size(Scl.scl(14f)).padRight(4f);
+            s.image(Icon.zoom).size(Scl.scl(14f)).padRight(8f);
             s.add(search).growX().height(Scl.scl(32f));
             if (!filterText.isEmpty()) {
                 s.button(Icon.cancel, Styles.cleari, () -> { filterText = ""; rebuild(); }).size(Scl.scl(28f)).padLeft(4f);
@@ -397,7 +397,7 @@ public class MusicPlayerDialog extends BaseDialog {
         final arc.scene.ui.Label countLbl = new arc.scene.ui.Label("", Styles.outlineLabel);
         countLbl.setColor(Color.lightGray);
         cont.table(h -> {
-            h.image(Icon.book).size(Scl.scl(12f)).padRight(4f);
+            h.image(Icon.book).size(Scl.scl(12f)).padRight(8f);
             h.add(countLbl).left();
             h.addListener(new Tooltip(t -> t.background(Styles.black6).margin(4f).add("共 " + MusicPlayer.tracks().size + " 首")));
         }).left().padBottom(2f).row();
