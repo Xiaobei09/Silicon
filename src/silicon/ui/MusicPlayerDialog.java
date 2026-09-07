@@ -51,6 +51,8 @@ public class MusicPlayerDialog extends BaseDialog {
 
     private MusicPlayerDialog() {
         super(Core.bundle.get("musicplayer.title"));
+        // 与播放作用域对齐：若悬浮条已把作用域切到某专辑，弹窗筛选默认跟随，保证显示与自动切换一致
+        filterAlbum = MusicPlayer.activeAlbum();
         closeOnBack();
     }
 
@@ -201,7 +203,7 @@ public class MusicPlayerDialog extends BaseDialog {
             TextButton all = new TextButton(Core.bundle.get("musicplayer.allAlbums"), Styles.flatBordert);
             all.getLabel().setWrap(false);
             all.update(() -> all.setColor(filterAlbum == null ? Pal.accent : Color.lightGray));
-            all.clicked(() -> { filterAlbum = null; rebuildRows(); });
+            all.clicked(() -> { filterAlbum = null; MusicPlayer.setActiveAlbum(null); rebuildRows(); });
             albumsFilter.add(all).width(Scl.scl(100f)).height(Scl.scl(30f)).pad(1f);
             Seq<MusicPlayer.Album> albums = MusicPlayer.albums();
             for (int i = 0; i < albums.size; i++) {
@@ -211,7 +213,7 @@ public class MusicPlayerDialog extends BaseDialog {
                 b.getLabel().setWrap(false);
                 b.getLabel().setEllipsis(true);
                 b.update(() -> b.setColor(name.equals(filterAlbum) ? Pal.accent : Color.white));
-                b.clicked(() -> { filterAlbum = name; rebuildRows(); });
+                b.clicked(() -> { filterAlbum = name; MusicPlayer.setActiveAlbum(name); rebuildRows(); });
                 albumsFilter.add(b).width(Scl.scl(96f)).height(Scl.scl(30f)).pad(1f);
             }
             // 新专辑按钮
@@ -606,8 +608,9 @@ public class MusicPlayerDialog extends BaseDialog {
             }
         }
         // 若正在播放的曲目原来在删除专辑内且当前专辑作用域是它，会由 removeAlbum 复位 activeAlbum；
-        // 这里把筛选也复位到全部
+        // 这里把筛选与播放作用域都复位到全部
         filterAlbum = null;
+        MusicPlayer.setActiveAlbum(null);
         rebuild();
     }
 
@@ -623,6 +626,7 @@ public class MusicPlayerDialog extends BaseDialog {
             if (!name.isEmpty()) {
                 MusicPlayer.addAlbum(name);
                 filterAlbum = name;
+                MusicPlayer.setActiveAlbum(name);
                 rebuild();
             }
             dlg.hide();
