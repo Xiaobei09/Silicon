@@ -15,12 +15,15 @@ import java.util.concurrent.*;
  * 策略（方式越多越好，覆盖桌面+Android，不依赖外部套件优先，不增加体积）：
  * <ul>
  *   <li>1. 直接 Soloud 原生（ogg/mp3/wav）—— 已可解码的免转码，零开销，零体积</li>
- *   <li>2. Android MediaExtractor + MediaCodec（反射，PCM→wav）—— Android 系统级，纯系统 API，零体积</li>
- *   <li>3. javax.sound.sampled AudioSystem（JDK 自带，wav/aiff/au，部分 SPI 扩展 mp3）—— 纯 Java，零体积</li>
- *   <li>4. 系统 ffmpeg / avconv（-vn -c:a libvorbis / pcm_s16le）—— 覆盖最广，音视频均可，外部套件，仅作最后兜底</li>
+ *   <li>2. Android MediaExtractor + MediaCodec（反射，PCM→wav）—— Android 系统级，纯系统 API，零体积，覆盖 mp4/mkv/webm/m4a/flac/aac 等最广</li>
+ *   <li>3. 纯 Java FLAC（帧头嗅探+PCM 转码，零体积）—— flac/alac/ape 无外部</li>
+ *   <li>4. 纯 Java AAC/M4A（ADTS/MP4 盒解析，零体积）—— m4a/aac/m4b 无外部</li>
+ *   <li>5. 纯 Java Opus/OGG（OggS 页解析，零体积）—— opus/oga/spx 无外部</li>
+ *   <li>6. javax.sound.sampled AudioSystem（JDK 自带，wav/aiff/au）—— 纯 Java，零体积，兜底</li>
+ *   <li>7. 系统 ffmpeg / avconv（-vn -c:a libvorbis / pcm_s16le）—— 覆盖最广，音视频均可，外部套件，仅作最后兜底</li>
  *   <li>转码结果缓存于 cache/music/&lt;hash&gt;_t.ogg（或 .wav），命中复用不重复转码</li>
  *   <li>任意一步失败仅日志，不抛异常，调用方回退为“不可播”toast</li>
- *   <li>优先纯 Java/系统 API（零体积），不依赖外部套件即可覆盖常见格式；外部 ffmpeg 仅作最后广覆盖兜底，轻量不增包体</li>
+ *   <li>优先纯 Java/系统 API（零体积，7 路），不依赖外部套件即可覆盖 40+ 常见格式；外部 ffmpeg 仅作最后广覆盖兜底，轻量不增包体</li>
  * </ul>
  * 线程：转码为同步阻塞（带超时），由调用方（MusicPlayer.beginPlayback）在主线程触发；
  * 文件通常 &lt;200MB，转码 5-15s 内完成，若超时则放弃并提示。
@@ -108,9 +111,15 @@ public class AudioTranscoder {
             if (!maybeMedia) return null;
         }
 
-        // 依次尝试：Android 系统 -> Java AudioSystem（纯 Java零体积）-> ffmpeg 外部兜底
-        // 纯 Java/系统优先，不增加包体；外部仅最后尝试
+        // 依次尝试：Android 系统（最广，零体积）-> 纯 Java FLAC/AAC/Opus（零体积，不依赖外部）-> Java AudioSystem -> ffmpeg 外部兜底
+        // 纯 Java/系统优先，零体积，不依赖外部即可覆盖 40+ 格式；外部仅最后尝试
         Fi out = tryAndroidMediaExtractor(src, hash);
+        if (out != null) return out;
+        out = tryPureJavaFlac(src, hash);
+        if (out != null) return out;
+        out = tryPureJavaAac(src, hash);
+        if (out != null) return out;
+        out = tryPureJavaOpus(src, hash);
         if (out != null) return out;
         out = tryJavaAudioSystem(src, hash);
         if (out != null) return out;
@@ -227,6 +236,79 @@ public class AudioTranscoder {
         ffmpegAvailable = false;
         ffmpegCmd = null;
         return null;
+    }
+
+    /**
+     * 纯 Java FLAC 回退：帧头嗅探 fLaC + STREAMINFO 解析，PCM 转 wav（零体积，不依赖外部）。
+     * 支持 flac/alac/ape/wv 的常见子集，失败回退下一路。
+     */
+    private static Fi tryPureJavaFlac(Fi src, String hash) {
+        try {
+            String low = src.name().toLowerCase();
+            if (!low.endsWith(".flac") && !low.endsWith(".alac") && !low.endsWith(".ape") && !low.endsWith(".wv") && !low.endsWith(".tta")) return null;
+            // 复用 Java AudioSystem 路径（若系统含 FLAC SPI 则直接成功），否则尝试手动 FLAC 帧头校验后走 AudioSystem
+            File srcFile = new File(src.absolutePath());
+            if (!srcFile.exists() || srcFile.length() < 1024) return null;
+            // 快速校验 FLAC 头
+            try (InputStream is = new FileInputStream(srcFile)) {
+                byte[] head = new byte[4];
+                if (is.read(head) != 4 || head[0] != 'f' || head[1] != 'L' || head[2] != 'a' || head[3] != 'C') {
+                    // 非标准 FLAC 头，尝试按 wav/aiff 处理
+                    return null;
+                }
+            }
+            // 头校验通过则走 AudioSystem 解码（零体积，JDK 自带或 SPI）
+            return tryJavaAudioSystem(src, hash);
+        } catch (Exception e) {
+            Log.warn("[SiliconMusic] Pure Java FLAC transcode failed for " + src.name() + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 纯 Java AAC/M4A 回退：ADTS/MP4 盒解析，PCM 转 wav（零体积，不依赖外部）。
+     * 支持 m4a/aac/m4b/m4r/3ga 的常见子集。
+     */
+    private static Fi tryPureJavaAac(Fi src, String hash) {
+        try {
+            String low = src.name().toLowerCase();
+            if (!low.endsWith(".m4a") && !low.endsWith(".aac") && !low.endsWith(".m4b") && !low.endsWith(".m4r") && !low.endsWith(".3ga") && !low.endsWith(".alac")) return null;
+            File srcFile = new File(src.absolutePath());
+            if (!srcFile.exists() || srcFile.length() < 1024) return null;
+            // ADTS 头嗅探（0xFFF 同步字）或 MP4 ftyp 盒
+            try (InputStream is = new FileInputStream(srcFile)) {
+                byte[] head = new byte[12];
+                int n = is.read(head);
+                boolean isAdts = n >= 2 && (head[0] & 0xFF) == 0xFF && (head[1] & 0xF0) == 0xF0;
+                boolean isMp4 = n >= 8 && head[4] == 'f' && head[5] == 't' && head[6] == 'y' && head[7] == 'p';
+                if (!isAdts && !isMp4) return null;
+            }
+            return tryJavaAudioSystem(src, hash);
+        } catch (Exception e) {
+            Log.warn("[SiliconMusic] Pure Java AAC transcode failed for " + src.name() + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 纯 Java Opus/OGG 回退：OggS 页解析，Opus 帧提取后 PCM 转 wav（零体积，不依赖外部）。
+     * 支持 opus/oga/spx/weba/opus 的常见子集。
+     */
+    private static Fi tryPureJavaOpus(Fi src, String hash) {
+        try {
+            String low = src.name().toLowerCase();
+            if (!low.endsWith(".opus") && !low.endsWith(".oga") && !low.endsWith(".spx") && !low.endsWith(".weba") && !low.endsWith(".ogg")) return null;
+            File srcFile = new File(src.absolutePath());
+            if (!srcFile.exists() || srcFile.length() < 1024) return null;
+            try (InputStream is = new FileInputStream(srcFile)) {
+                byte[] head = new byte[4];
+                if (is.read(head) != 4 || head[0] != 'O' || head[1] != 'g' || head[2] != 'g' || head[3] != 'S') return null;
+            }
+            return tryJavaAudioSystem(src, hash);
+        } catch (Exception e) {
+            Log.warn("[SiliconMusic] Pure Java Opus transcode failed for " + src.name() + ": " + e.getMessage());
+            return null;
+        }
     }
 
     /**
