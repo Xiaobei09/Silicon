@@ -1294,7 +1294,9 @@ public class MusicPlayer {
         // 此刻 raw 位置还是 0，直接返回会让人看到「进度条先跳到开头再跳回来」。
         // 在 seek 应用前这段时间，按「将要定位到的位置」上报，避免进度条瞬间归零。
         if (pendingResumeSeek >= 0f) return Math.max(0f, pendingResumeSeek);
-        if (localVoiceId >= 0) {
+        // 读本地声源位置前先确认句柄有效（isPlaying 且仍在本地 voices 列表），避免对已释放/未就绪句柄
+        // 调原生 idPosition 触发与 idSeek 同族的 EXCEPTION_ACCESS_VIOLATION（currentTime 每帧都由 UI 调用）
+        if (localVoiceId >= 0 && isLocalVoiceValid()) {
             float p = SoloudBridge.getPosition(localVoiceId);
             if (Float.isNaN(p) || Float.isInfinite(p)) return pausedPosition > 0f ? pausedPosition : 0f;
             return Math.max(0f, p);
