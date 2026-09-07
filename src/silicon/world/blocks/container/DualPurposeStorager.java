@@ -8,7 +8,7 @@ import mindustry.gen.Building;
 import mindustry.type.Liquid;
 import mindustry.world.blocks.liquid.LiquidBlock;
 import mindustry.world.blocks.storage.StorageBlock;
-import silicon.util.SiliconLog;
+import arc.util.Log;
 
 /**
  * 两用存储方块：可存储物品与单种液体。
@@ -54,15 +54,15 @@ public class DualPurposeStorager extends StorageBlock {
         this.liquidRegion = Core.atlas.find(name + "-liquid");
         this.topRegion = Core.atlas.find(name + "-top");
         if (!bottomRegion.found()) {
-            SiliconLog.warn("DualPurposeStorager '{}' missing -bottom texture, fallback to region", name);
+            Log.warn("[Silicon] DualPurposeStorager '" + name + "' missing -bottom texture, fallback to region");
             bottomRegion = region;
         }
         if (!liquidRegion.found()) {
-            SiliconLog.warn("DualPurposeStorager '{}' missing -liquid texture, fallback to region", name);
+            Log.warn("[Silicon] DualPurposeStorager '" + name + "' missing -liquid texture, fallback to region");
             liquidRegion = region;
         }
         if (!topRegion.found()) {
-            SiliconLog.warn("DualPurposeStorager '{}' missing -top texture, fallback to region", name);
+            Log.warn("[Silicon] DualPurposeStorager '" + name + "' missing -top texture, fallback to region");
             topRegion = region;
         }
     }

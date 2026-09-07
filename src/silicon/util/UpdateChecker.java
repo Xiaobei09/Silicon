@@ -73,7 +73,7 @@ public class UpdateChecker {
             downloadFailed = false;
             dialogShown = false;
         }
-        SiliconLog.info("Checking for updates...");
+        Log.info("[Silicon] Checking for updates...");
         Http.get(API_URL, res -> {
             String body = res.getResultAsString();
             String tag = extractTag(body);
@@ -99,7 +99,7 @@ public class UpdateChecker {
                 showInfoPopup(Core.bundle.get("updatecheck.none"));
             }
         }, err -> {
-            SiliconLog.info("Update check failed: " + err);
+            Log.warn("[Silicon] Update check failed: " + err);
             if (force) {
                 // GitHub API 限流（403）与普通网络失败区分提示
                 if (err instanceof Http.HttpStatusException
@@ -232,7 +232,7 @@ public class UpdateChecker {
             }
         }, err -> {
             // 网络失败：继续尝试下一个源（CDN 加速）
-            SiliconLog.info("Download failed, trying next source: " + url + " (" + err + ")");
+            Log.warn("[Silicon] Download failed, trying next source: " + url + " (" + err + ")");
             downloadFrom(index + 1, onDone, onError);
         });
     }

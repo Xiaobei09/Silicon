@@ -24,9 +24,9 @@ import mindustry.ui.dialogs.BaseDialog;
 import mindustry.ui.dialogs.SettingsMenuDialog;
 import silicon.content.block.Blocks;
 import silicon.content.item.Items;
+import arc.util.Log;
 import silicon.util.MessageSync;
 import silicon.util.MessageSystem;
-import silicon.util.SiliconLog;
 import silicon.util.SignalOverlay;
 import silicon.util.UpdateChecker;
 import silicon.world.blocks.distribution.ItemTransferHubNetwork;
@@ -79,7 +79,7 @@ public class Silicon extends Mod {
     public void loadContent() {
         Items.load();
         Blocks.load();
-        SiliconLog.info("Loading contents.");
+        Log.info("[Silicon] Loading contents.");
     }
 
     @Override
@@ -171,7 +171,7 @@ public class Silicon extends Mod {
                 // 灰色细线：与「恢复默认设置」分隔（注册为设置项，rebuild 时保留）
                 st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
 
-                SiliconLog.info("Loading settings.");
+                Log.info("[Silicon] Loading settings.");
             });
         });
 
@@ -191,7 +191,7 @@ public class Silicon extends Mod {
                     if (p.admin || p.name.equals(state.map.author())) {
                         state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
                         Call.clientPacketReliable(p.con, "paused", time);
-                        SiliconLog.info(p.name + " pause");
+                        Log.info("[Silicon] " + p.name + " pause");
                         return;
                     }
 
@@ -200,14 +200,14 @@ public class Silicon extends Mod {
                     if (Vars.pauseMode == 1) {
                         state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
                         Call.clientPacketReliable(p.con, "paused", time);
-                        SiliconLog.info(p.name + " pause");
+                        Log.info("[Silicon] " + p.name + " pause");
                         return;
                     }
 
                     if (Vars.pauseMode == 2 && Vars.pauseWhitelist.contains(p.name)) {
                         state.set(state.isPaused() ? GameState.State.playing : GameState.State.paused);
                         Call.clientPacketReliable(p.con, "paused", time);
-                        SiliconLog.info(p.name + " pause");
+                        Log.info("[Silicon] " + p.name + " pause");
                     }
                 });
 
