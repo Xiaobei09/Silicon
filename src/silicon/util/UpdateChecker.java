@@ -8,6 +8,7 @@ import arc.scene.event.InputListener;
 import arc.scene.ui.TextButton;
 import arc.scene.ui.layout.Table;
 import arc.util.Http;
+import arc.util.Log;
 import mindustry.game.EventType;
 import mindustry.gen.Icon;
 import mindustry.gen.Tex;
