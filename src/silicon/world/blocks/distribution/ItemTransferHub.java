@@ -30,7 +30,7 @@ import mindustry.world.Block;
 import mindustry.world.blocks.defense.turrets.ItemTurret;
 import mindustry.world.blocks.production.Drill;
 import mindustry.world.blocks.production.GenericCrafter;
-import silicon.util.SiliconLog;
+import arc.util.Log;
 import silicon.world.blocks.production.MineConverter;
 import mindustry.world.blocks.storage.CoreBlock;
 import mindustry.world.blocks.storage.StorageBlock;
@@ -653,7 +653,7 @@ public class ItemTransferHub extends Block {
     private void drawCopyLinksIfCopied(mindustry.entities.units.BuildPlan plan, arc.util.Eachable<mindustry.entities.units.BuildPlan> list, String via){
         if (!(plan.config instanceof arc.math.geom.Point2[] ps)) return;
         if (debugFlows && ++copyPreviewTick % 30 == 1) {
-            SiliconLog.info("[中枢复制预览:" + via + "] points=" + ps.length
+            Log.info("[Silicon] [中枢复制预览:" + via + "] points=" + ps.length
                 + " @" + plan.x + "," + plan.y + " -> 延迟至 postDraw(z=120) op=" + linkOpacity());
         }
         // 只在钩子期【解析】线段——只有此处能看到同批「计划」的上下文；
@@ -1090,7 +1090,7 @@ public class ItemTransferHub extends Block {
                     sb.append(' ').append(e.key).append('=').append(e.value);
                 }
                 sb.append(" | 速率=").append(transferRate).append(" 耗电=").append(powerPerSecond);
-                SiliconLog.info(sb.toString());
+                Log.info("[Silicon] " + sb.toString());
                 debugFlow.clear();
                 debugTicks = 0;
             }

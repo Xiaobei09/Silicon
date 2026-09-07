@@ -24,7 +24,7 @@ import mindustry.world.blocks.production.Drill;
 import mindustry.world.meta.BlockFlag;
 import mindustry.world.meta.Stat;
 import mindustry.world.meta.Stats;
-import silicon.util.SiliconLog;
+import arc.util.Log;
 import silicon.world.blocks.FrameBlock;
 import silicon.world.meta.StatValues;
 
@@ -217,7 +217,7 @@ public class MineConverter extends FrameBlock {
         }
         rebuildScaled();
         boolean changed = !oldCosts.equals(costs);
-        if (changed) SiliconLog.info("Recount the number of minerals");
+        if (changed) Log.info("[Silicon] Recount the number of minerals");
         return changed;
     }
 
@@ -251,7 +251,7 @@ public class MineConverter extends FrameBlock {
                 out.writeFloat(costs.get(item, 0));
             }
         } catch (IOException e) {
-            SiliconLog.info("Failed to serialize world costs: " + e);
+            Log.warn("[Silicon] Failed to serialize world costs: " + e);
         }
         return bytes.toByteArray();
     }
@@ -286,7 +286,7 @@ public class MineConverter extends FrameBlock {
             costsDirty = false;
             lastCostsWorldChange = world.tileChanges;
         } catch (Exception e) {
-            SiliconLog.info("Failed to apply world costs: " + e);
+            Log.warn("[Silicon] Failed to apply world costs: " + e);
         }
     }
 

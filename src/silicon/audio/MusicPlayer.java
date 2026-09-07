@@ -628,7 +628,7 @@ public class MusicPlayer {
             // 静默窗口过后仍从未进入播放态 → 启动即失败（解码不支持/缓存损坏/文件缺失）。
             // 不自动跳到别的曲目（此前会静默推进成「内置歌曲」），停播并留日志便于排查。
             MusicTrack cur = currentTrack();
-            Log.warn("Playback failed to start, stopped without auto-skip: " + (cur == null ? "?" : cur.name));
+            Log.warn("[SiliconMusic] Playback failed to start, stopped without auto-skip: " + (cur == null ? "?" : cur.name));
             resumeGraceUntil = -1f;
             stopLocal();
             return;
@@ -751,7 +751,7 @@ public class MusicPlayer {
         beginPlayback(current);
         MusicTrack to = currentTrack();
         if (from != to) {
-            Log.info("Track transition: " + (from == null ? "?" : from.name) + " -\u003e " + (to == null ? "?" : to.name));
+            Log.info("[SiliconMusic] Track transition: " + (from == null ? "?" : from.name) + " -\u003e " + (to == null ? "?" : to.name));
         }
         return playing;
     }
@@ -999,7 +999,7 @@ public class MusicPlayer {
                 });
                 return;
             }
-            SiliconLog.log("Cannot resolve " + (t == null ? "?" : t.name) + " to a local file");
+            Log.info("[SiliconMusic] Cannot resolve " + (t == null ? "?" : t.name) + " to a local file");
             // UI 反馈：此前失败完全静默，用户以为「播放按钮没反应/坏了」（问题6b/15）
             toast("musicplayer.cannotPlay", t == null ? "?" : t.name);
             return;
@@ -1011,7 +1011,7 @@ public class MusicPlayer {
             if (decodable != null) file = decodable;
             if (!isDecodablePath(file.absolutePath())) {
                 // 尝试转码后仍不可解（如 ffmpeg 缺失且 Java 回退也失败，或文件本身非音视频）
-                Log.warn("Blocked play of undecodable " + t.name + " (Soloud only decodes ogg/mp3/wav, transcode failed)");
+                Log.warn("[SiliconMusic] Blocked play of undecodable " + t.name + " (Soloud only decodes ogg/mp3/wav, transcode failed)");
                 playing = false;
                 localVoiceId = -1;
                 toast("musicplayer.undecodable", t.name);
@@ -1022,14 +1022,14 @@ public class MusicPlayer {
         if (t.isInternal()) {
             file = extractInternalToRealFile(file, t.source);
             if (file == null) {
-                SiliconLog.log("Cannot extract internal track " + t.name);
+                Log.info("[SiliconMusic] Cannot extract internal track " + t.name);
                 return;
             }
         }
         Sound snd = null;
         try {
             if (!isAsciiPath(file.absolutePath())) {
-                SiliconLog.log("Block playback of non-ASCII path: " + file.name());
+                Log.info("[SiliconMusic] Block playback of non-ASCII path: " + file.name());
                 return;
             }
             snd = Sound.createStream(file);
@@ -1064,7 +1064,7 @@ public class MusicPlayer {
                 } catch (Exception ignored) {
                 }
             }
-            SiliconLog.log("Failed to play " + t.name + ": " + e.getMessage());
+            Log.info("[SiliconMusic] Failed to play " + t.name + ": " + e.getMessage());
             playing = false;
             localVoiceId = -1;
             toast("musicplayer.playFail", t.name);
@@ -1731,7 +1731,7 @@ public class MusicPlayer {
             hashExt.put(t.cacheHash, e);
             return out.exists() ? out : null;
         } catch (Exception e) {
-            SiliconLog.log("Local ascii-copy fail " + t.name + ": " + e.getMessage());
+            Log.info("[SiliconMusic] Local ascii-copy fail " + t.name + ": " + e.getMessage());
             return null;
         }
     }
@@ -1763,7 +1763,7 @@ public class MusicPlayer {
             }
             return out.exists() ? out : null;
         } catch (Exception e) {
-            SiliconLog.log("Extract internal " + key + " fail: " + e.getMessage());
+            Log.info("[SiliconMusic] Extract internal " + key + " fail: " + e.getMessage());
             return null;
         }
     }
@@ -1829,7 +1829,7 @@ public class MusicPlayer {
             hashExt.put(hash, e);
             return finalFile.exists();
         } catch (Exception ex) {
-            SiliconLog.log("Cache finalize fail " + hash + ": " + ex.getMessage());
+            Log.info("[SiliconMusic] Cache finalize fail " + hash + ": " + ex.getMessage());
             return false;
         }
     }
@@ -1928,7 +1928,7 @@ public class MusicPlayer {
             hashExt.put(hash, e);
             return true;
         } catch (Exception e) {
-            SiliconLog.log("Cache write fail " + hash + ": " + e.getMessage());
+            Log.info("[SiliconMusic] Cache write fail " + hash + ": " + e.getMessage());
             return false;
         }
     }
@@ -2025,26 +2025,26 @@ public class MusicPlayer {
             file = cacheFileForHash(hash);
         }
         if (file == null || !file.exists()) {
-            SiliconLog.log("Remote play: no local file for " + hash);
+            Log.info("[SiliconMusic] Remote play: no local file for " + hash);
             return; // 尚未下载/尚未拿到二进制，等下载完成后由网络层再次调用
         }
         if (t != null && t.isInternal()) {
             file = extractInternalToRealFile(file, t.source);
             if (file == null) {
-                SiliconLog.log("Remote play: cannot extract internal " + hash);
+                Log.info("[SiliconMusic] Remote play: cannot extract internal " + hash);
                 return;
             }
         }
         Sound snd = null;
         try {
             if (!isAsciiPath(file.absolutePath())) {
-                SiliconLog.log("Block remote play of non-ASCII path: " + file.name());
+                Log.info("[SiliconMusic] Block remote play of non-ASCII path: " + file.name());
                 return;
             }
             Fi decodable = AudioTranscoder.ensureDecodable(file, hash);
             if (decodable != null) file = decodable;
             if (!isDecodablePath(file.absolutePath())) {
-                SiliconLog.log("Block remote play of undecodable " + file.name());
+                Log.info("[SiliconMusic] Block remote play of undecodable " + file.name());
                 return;
             }
             snd = Sound.createStream(file);
@@ -2070,7 +2070,7 @@ public class MusicPlayer {
                 } catch (Exception ignored) {
                 }
             }
-            SiliconLog.log("Remote play fail: " + e.getMessage());
+            Log.info("[SiliconMusic] Remote play fail: " + e.getMessage());
         }
     }
 

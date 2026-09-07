@@ -82,7 +82,7 @@ public class BlockSearch{
                 f.setAccessible(true);
             }
         }catch(Throwable t){
-            Log.err("BlockSearch: unable to access block select internals, block search disabled.", t);
+            Log.err("[Silicon] BlockSearch: unable to access block select internals, block search disabled.", t);
             return;
         }
 
@@ -347,7 +347,7 @@ public class BlockSearch{
             String[] table = new String[0x10000];
             try(InputStream in = BlockSearch.class.getResourceAsStream("/pinyin.txt")){
                 if(in == null){
-                    Log.warn("BlockSearch: pinyin table not found, pinyin search disabled.");
+                    Log.warn("[Silicon] BlockSearch: pinyin table not found, pinyin search disabled.");
                 }else{
                     BufferedReader r = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
                     String line;
@@ -362,7 +362,7 @@ public class BlockSearch{
                     }
                 }
             }catch(Exception e){
-                Log.err("BlockSearch: failed to load pinyin table", e);
+                Log.err("[Silicon] BlockSearch: failed to load pinyin table", e);
             }
             pinyin = table;
         }
