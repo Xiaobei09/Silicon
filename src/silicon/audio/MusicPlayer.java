@@ -515,7 +515,7 @@ public class MusicPlayer {
         // 恢复播放的延迟 seek：新声源确认存活（isPlaying 且距建源 ≥0.3s）才应用 seek。
         // 必须 isPlaying 才 apply：soloud 对未就绪声源 idSeek 会原生崩溃（见 seek() 铁律注释）。
         // 外部流式/URL 声源缓冲中存的 pending，会在声源转为真正播放态后自动应用（安全可等的延迟）。
-        if (pendingResumeSeek >= 0f && Core.audio.isPlaying(localVoiceId) && Time.time - lastBlip >= 0.3f) {
+        if (pendingResumeSeek >= 0f && canSafelySeek()) {
             float s = pendingResumeSeek;
             pendingResumeSeek = -1f;
             seek(s);
@@ -581,7 +581,7 @@ public class MusicPlayer {
                 if (target <= 0f) {
                     stopLocal();
                     bcast("stop");
-                } else if (isLocalVoiceValid() && Time.time - lastBlip >= 0.3f) {
+                } else if (canSafelySeek()) {
                     SoloudBridge.seek(localVoiceId, Math.max(0f, target));
                 }
             }
@@ -593,11 +593,9 @@ public class MusicPlayer {
             float lo = Math.min(abA, abB);
             float hi = Math.max(abA, abB);
             if (pos >= hi) {
-                seek(lo);
+                if (canSafelySeek()) seek(lo);
             } else if (Time.time - lastSeekAt >= 1.0f && lastPos - pos > 0.5f) {
-                // LOOP_ONE 原生循环在曲末无痕回绕到 0：位置相对上帧明显回退，且非手动拖动后刚发生，
-                // 说明整曲被原生层重启，把播放无缝拉回区间起点，避免每圈先播一段 [0,lo) 再进区间
-                seek(lo);
+                if (canSafelySeek()) seek(lo);
             }
             lastPos = currentTime();
         }
@@ -1476,9 +1474,35 @@ public class MusicPlayer {
         if (localVoiceId < 0) return false;
         try {
             if (!Core.audio.isPlaying(localVoiceId)) return false;
+            float pos = SoloudBridge.getPosition(localVoiceId);
+            if (Float.isNaN(pos) || Float.isInfinite(pos)) return false;
         } catch (Exception e) { return false; }
         for (Voice v : voices) {
-            if (v.isLocalOwner && v.voiceId == localVoiceId && v.sound != null) return true;
+            if (v.isLocalOwner && v.voiceId == localVoiceId && v.sound != null) {
+                try { v.sound.getLength(); } catch (Exception e) { return false; }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 本地声源是否已存活足够久，可安全执行原生 idSeek。
+     * 根因：Soloud.idSeek 对「内部状态不一致」的声源（Java 层 isPlaying=true 但原生 voice 结构已半释放/缓冲未就绪）
+     * 会直接 EXCEPTION_ACCESS_VIOLATION（读 0x0）。isPlaying / getPosition 只检查「声源是否在播放列表」，不保证
+     * idSeek 的内部 v->mAudio 句柄有效——该句柄在声源刚创建的流式缓冲期、或被外部释放后极短暂窗口内可能为 NULL。
+     * 0.3s 的 lastBlip 守卫不足以覆盖慢速缓冲（URL 外部流）场景。
+     * 本方法在 isLocalVoiceValid 之上追加「声源存活时长 ≥0.5s」硬门槛，仅在 Voice.createdAt 可查时生效；
+     * 无法查 createdAt 时降级为 isLocalVoiceValid（但不调 idSeek）。
+     */
+    private static boolean canSafelySeek() {
+        if (!isLocalVoiceValid()) return false;
+        if (Time.time - lastBlip < 0.5f) return false;
+        // 额外：遍历 voices 检查 createdAt — 保证声源在原生层已充分初始化
+        for (Voice v : voices) {
+            if (v.isLocalOwner && v.voiceId == localVoiceId) {
+                return (Time.time - v.createdAt) >= 0.5f;
+            }
         }
         return false;
     }
@@ -1557,16 +1581,13 @@ public class MusicPlayer {
         // 倒放中手动 seek（进度条拖动/快进快退）后，同步倒放累积位置到目标点——
         // 否则 tickLocal 倒放分支仍从旧 lastReversePos 回退，刚跳到的位置立即被反向拉回去（拖了白拖）。
         if (reverse) lastReversePos = Math.max(0f, seconds);
-        // 铁律：soloud 对「未确认存活」的声源同步 idSeek 会在原生 arc64.dll 崩溃（断言 !mInsideAudioThreadMutex，
-        // 见 hs_err 栈 idSeek→SoloudBridge.seek←MusicPlayer.seek←UI 滑杆 changed；AGENTS「对刚创建的新声源
-        //  立刻 idSeek 会原生进程崩溃」）。isPlaying 是 soloud 判定声源真正就绪/可 seek 的唯一可靠信号——
-        //  只有 isPlaying 且距建源 ≥0.3s 且本地声源句柄有效才同步 seek；否则整体走 deferSeek，由 tickLocal 在声源 isPlaying
-        //  后延迟应用。外部流式声源缓冲中拖进度：先 defer，声源一旦真播放即自动应用（延迟但安全，不会崩）。
-        // 新增 isLocalVoiceValid 校验：localVoiceId 必须仍在 voices 列表且 sound 未 dispose，避免对已释放/未就绪的句柄 idSeek
+        // 铁律：soloud 对「未确认存活」的声源同步 idSeek 会在原生 arc64.dll 崩溃（EXCEPTION_ACCESS_VIOLATION，
+        // 读 0x0：原生 voice 的 mAudio 句柄在流式缓冲期/刚释放后可能为 NULL，isPlaying 不检测此状态）。
+        // canSafelySeek = isLocalVoiceValid + 存活 ≥0.5s + createdAt ≥0.5s，三重门槛确保原生层充分就绪。
+        // 不满足则 deferSeek，由 tickLocal 在声源稳定后延迟应用（延迟但安全，不会崩）。
         if (localVoiceId >= 0) {
-            if (isLocalVoiceValid() && Core.audio.isPlaying(localVoiceId) && Time.time - lastBlip >= 0.3f) {
+            if (canSafelySeek()) {
                 SoloudBridge.seek(localVoiceId, seconds);
-                // 对实际下发的同步 seek 安排结果校验（倒放分支直接操作声源不走这里，倒放时不校验）
                 if (!reverse) scheduleSeekVerify(seconds);
             } else {
                 deferSeek(seconds);
@@ -1589,8 +1610,8 @@ public class MusicPlayer {
     /** 本地声源是否可安全 seek（供 UI 滑杆在 changed 前二次校验，避免对未就绪句柄 idSeek 崩溃） */
     public static boolean canSeek() {
         if (seekUnreliable) return false;
-        if (!playing) return true; // 暂停态仅改 pausedPosition，不触及 Soloud 句柄，安全
-        return isLocalVoiceValid();
+        if (!playing) return true;
+        return canSafelySeek();
     }
 
     /** 游戏内 UI 提示（音频层无场景依赖，仅在客户端且 UI 就绪时弹出；失败静默） */
