@@ -52,7 +52,7 @@ ext{
     // - latest: depend on the latest release of mindustry
     // - be: depend on the very latest commit of mindustry
     // - v<number>: depend on a specific commit
-    mindustryVersion = "v159.7"
+    mindustryVersion = "v160.1"
     isWindows = System.getProperty("os.name").toLowerCase().contains("windows")
     sdkRoot = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
 
@@ -67,6 +67,20 @@ dependencies{
     compileOnly mindustryVersion == "be" ? "Anuken:MindustryBuilds:latest" : "Anuken:Mindustry:$mindustryVersion"
 //    compileOnly "com.github.Anuken.Arc:arc-core:$mindustryVersion"
 //    compileOnly "com.github.Anuken.Mindustry:core:$mindustryVersion"
+
+    // 音乐播放器的纯 Java 解码器（implementation → 会自动进入 runtimeClasspath，
+    // 由下面的 jar 任务打成 mod 单文件 jar）。
+    // 目的：mp3/flac 先解成 PCM WAV 再交给 SoLoud——SoLoud 对这两种格式的「流式 seek」
+    // 不可靠（flac 归零、部分 mp3 跳错位置），转 WAV 后拖动变为采样级精确；
+    // 其余格式（m4a/aac/opus/wma…）仍由可选的 FFmpeg 兜底。
+    // 注意：jlayer 与 jflac 的 compile 依赖里带 junit 3.8.2，必须排除，否则会打进 mod jar。
+    implementation("com.googlecode.soundlibs:jlayer:1.0.1.4") { exclude group: "junit", module: "junit" }
+    implementation("org.jflac:jflac-codec:1.5.2") { exclude group: "junit", module: "junit" }
+    // m4a/aac：JAAD（公共领域，纯 Java AAC-LC/HE-AAC + MP4 解封装）
+    implementation("de.sfuhrm:jaad:0.8.7")
+    // opus：Concentus（BSD-3，纯 Java Opus 解码）+ vorbis-java（Apache-2.0，解 Ogg 容器）
+    implementation("io.github.jaredmdobson:concentus:1.0.2")
+    implementation("org.gagravarr:vorbis-java-core:0.8")
 }
 
 tasks.register('jarAndroid') {
@@ -179,6 +193,23 @@ jar{
     from("assets/"){
         include "**"
     }
+
+    // 内置解码器（jlayer/jflac）打包配套：
+    // - 排除签名文件，否则装进 mods 会因无效签名加载失败
+    // - 排除依赖 javax.sound / java.applet 的类（桌面之外不存在，且我们只用其 PCM 解码核心）
+    // - 排除 SPI 注册（保留但没有 SPI 实现类 → NoClassDefFoundError），
+    //   以及 jlayer 的资源加载在 Android 上的备用 hook 无关的示例/播放器类
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    exclude "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/INDEX.LIST"
+    exclude "META-INF/services/**"
+    exclude "javazoom/jl/player/**", "javazoom/jl/converter/**", "javazoom/jl/decoder/DecoderTest*"
+    exclude "org/jflac/sound/**"
+    // jaad 中依赖 javax.sound / java.awt 的类（SPI 播放器、封面/视频盒）：我们只用其 AAC 解码核心
+    exclude "net/sourceforge/jaad/spi/**"
+    exclude "net/sourceforge/jaad/Play.class", "net/sourceforge/jaad/Radio.class"
+    exclude "net/sourceforge/jaad/mp4/api/Artwork.class"
+    exclude "net/sourceforge/jaad/mp4/boxes/impl/VideoMediaHeaderBox.class"
+    exclude "net/sourceforge/jaad/mp4/boxes/impl/ArtworkBox*"
 }
 
 tasks.register('deploy', Jar) {

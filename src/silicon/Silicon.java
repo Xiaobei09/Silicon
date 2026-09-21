@@ -22,6 +22,8 @@ import mindustry.mod.Mods;
 import mindustry.ui.Styles;
 import mindustry.ui.dialogs.BaseDialog;
 import mindustry.ui.dialogs.SettingsMenuDialog;
+import silicon.audio.MusicNetwork;
+import silicon.audio.MusicPlayer;
 import silicon.content.block.Blocks;
 import silicon.content.item.Items;
 import silicon.util.MessageSync;
@@ -36,6 +38,8 @@ import silicon.world.blocks.production.MineConverter;
 import silicon.world.blocks.signal.SignalRelay;
 import silicon.world.blocks.signal.SignalSource;
 import silicon.ui.BlockSearch;
+import silicon.ui.MusicBar;
+import silicon.ui.MusicPlayerDialog;
 import silicon.ui.MessagePanel;
 
 import static mindustry.Vars.*;
@@ -94,6 +98,7 @@ public class Silicon extends Mod {
             ItemTransferHubNetwork.resetIdCounter();
             SignalSource.markDirty();
             SignalRelay.markDirty();
+            MusicNetwork.reset();
             // PowerProtector 无全局静态状态，数据随存档保存，无需重置
         });
 
@@ -103,6 +108,22 @@ public class Silicon extends Mod {
         SignalOverlay.init();
         // 消息系统多人联网同步（nop 当不在服务器上时，仅注册事件处理器）
         MessageSync.init();
+
+        // —— 音乐播放器：核心/网络/悬浮条初始化 ——
+        MusicPlayer.init();
+        MusicNetwork.init();
+        MusicBar.init();
+
+        // ClientLoadEvent 时确保内置曲目已载入（Musics.* 此时已 load）
+        Events.on(EventType.ClientLoadEvent.class, e -> MusicPlayer.ensureInternalTracks());
+
+        // 音乐播放器快捷键（默认 F9，可在设置里通过 core settings 调整）
+        Events.run(EventType.Trigger.update, () -> {
+            if (!state.isGame() && !ui.settings.isShown()) return;
+            if (Core.input.keyTap(musicKey())) {
+                MusicPlayerDialog.open();
+            }
+        });
 
         // 主界面自动检查 GitHub 更新（可在设置中关闭；有更新才显示横幅，初始隐藏）
         Events.on(EventType.ClientLoadEvent.class, e -> {
@@ -162,6 +183,31 @@ public class Silicon extends Mod {
                 // —— 界面 ——
                 addSection(st, "setting.silicon.group.ui");
                 st.checkPref("universal-junction.newUI", false);
+                // 灰色细线：与音乐播放器设分隔（注册为设置项，rebuild 时保留）
+                st.pref(new CustomSetting(t -> t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(8f)));
+                // —— 音乐播放器 ——
+                st.pref(new CustomSetting(t -> t.button(Core.bundle.get("musicplayer.open"), Styles.defaultt, MusicPlayerDialog::open).width(200f).padTop(6f)));
+                // 总开关：关掉后悬浮条整体隐藏、网络收发停止（本地播放不受影响）。
+                // 以前只藏在弹窗的「更多设置」里，用户误点后只觉得「悬浮条不见了」而找不到开关，因此也放进设置页。
+                st.checkPref("musicplayer.enabled", true, v -> MusicPlayer.setEnabled(v));
+                // 超长曲目 WAV 上限（MB）：解码出的 PCM 体积 = 秒 × 采样率 × 声道 × 2，
+                // 超过该上限就降采样（优先保立体声、其次并单声道，采样率不低于 16kHz），
+                // 避免一首 44 分钟的长曲（约 471MB）占满 512MB 缓存预算把别的曲目挤出去。
+                st.sliderPref(silicon.audio.AudioTranscoder.CFG_MAX_WAV_MB,
+                        silicon.audio.AudioTranscoder.DEFAULT_MAX_WAV_MB,
+                        silicon.audio.AudioTranscoder.MIN_MAX_WAV_MB,
+                        silicon.audio.AudioTranscoder.MAX_MAX_WAV_MB, 16,
+                        i -> i + " MB");
+                // FFmpeg 路径（可选）：填了就能播放/精确拖动任意格式（m4a/aac/wma…），留空则只用内置解码。
+                // 标签与输入框分两行：横排时输入框被标签挤得很窄，长路径（形如 C:\ffmpeg\bin\ffmpeg.exe）
+                // 根本看不全，也无法直接整段复制/粘贴核对。
+                st.pref(new CustomSetting(t -> {
+                    t.add(Core.bundle.get("musicplayer.ffmpeg")).left().padBottom(4f).row();
+                    t.field(Core.settings.getString(silicon.audio.AudioTranscoder.CFG_FFMPEG, ""), s -> {
+                        Core.settings.put(silicon.audio.AudioTranscoder.CFG_FFMPEG, s == null ? "" : s.trim());
+                        silicon.audio.AudioTranscoder.resetProbe();
+                    }).growX().height(36f);
+                }));
 
                 // —— 更新 ——
                 addSection(st, "setting.silicon.group.update");
@@ -272,6 +318,11 @@ public class Silicon extends Mod {
         });
     }
 
+    /** 音乐播放器快捷键（默认 f9） */
+    private static arc.input.KeyCode musicKey() {
+        return arc.input.KeyCode.f9;
+    }
+
     public static void showWhitelistDialog() {
         BaseDialog dialog = new BaseDialog(Core.bundle.get("hubWhitelist.title"));
         dialog.cont.top();
@@ -319,8 +370,7 @@ public class Silicon extends Mod {
         dialog.show();
     }
 
-    private void handlePauseCommand(Player p, String msg) {
-        String[] parts = msg.split(" ");
+    private void handlePauseCommand(Player p, String msg) {        String[] parts = msg.split(" ");
         if (parts.length < 2) return;
 
         boolean isHost = p.admin || p.name.equals(state.map.author());
@@ -367,7 +417,15 @@ public class Silicon extends Mod {
      * 在设置表中插入一个「分类标题」：上方灰色分隔横线 + 强调色分类名（左对齐）。
      * 注册为设置项，rebuild（恢复默认/切换分类）时自动保留。
      */
+    /** 上一个小节完成时刻（用于设置构建耗时诊断） */
+    private static long lastSectionAt = 0L;
+
     private static void addSection(SettingsMenuDialog.SettingsTable st, String labelKey) {
+        long now = System.currentTimeMillis();
+        if (lastSectionAt > 0L) {
+            SiliconLog.info("[Settings] section " + labelKey + " took " + (now - lastSectionAt) + "ms");
+        }
+        lastSectionAt = now;
         st.pref(new CustomSetting(t -> {
             t.image(Tex.whiteui).growX().height(2f).color(Pal.gray).padTop(8f).padBottom(2f);
             t.row();
