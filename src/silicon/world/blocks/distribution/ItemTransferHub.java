@@ -1937,8 +1937,8 @@ public class ItemTransferHub extends Block {
         public void draw() {
             super.draw();
             // 连线不再随方块自身绘制：改由 Trigger.postDraw 全局覆盖层统一驱动
-            // （见类顶部静态注册处，around line 136）——全部更新后一次画完，
-            // 严格位于一切方块几何之上且不受方块绘制批次影响。
+            // （见本类静态注册处 Events.run(EventType.Trigger.postDraw, …)）——全部更新后
+            // 一次画完，严格位于一切方块几何之上且不受方块绘制批次影响。
             //
             // 【注意：这里不是也不能是 Trigger.drawOver】(2026-09-27 修正陈旧注释)
             //   v8 渲染顺序为 …→fire(drawOver)→blocks.drawBlocks()（方块延迟上屏）
