@@ -76,8 +76,6 @@ jobs:
 
       - name: Robin review
         if: steps.llm.outputs.ok == 'true'
-        env:
-          ROBIN_DEBUG_HEADERS: 'true'
         uses: Xiaobei09/robin-custom-headers@main
         with:
           github-token: ${{ github.token }}
@@ -96,10 +94,3 @@ jobs:
           # 官方 v2.7.2 / main 的 action.yml 都有这个 input，不需要 fork 即可开启。
           # 成本控制靠上方 concurrency(cancel-in-progress) + 草稿 PR 跳过。
           review-on-synchronize: true
-          # zen 免费档的两条硬性准入（与上方 header 要求同源，实测缺一即 403）：
-          #   stream:true —— robin 默认非 router 走 blockingChatCompletion，必须强制走 SSE
-          #   tools ≥2    —— robin 从不发 tools，注入两个 tool_choice=none 的占位工具
-          # 两者都是 fork 能力，官方 antongulin/robin 无此 input；若切回 space-bunny-free
-          # 可直接删掉这两行（该模型不需要）。
-          force-stream: true
-          compat-tools: true
