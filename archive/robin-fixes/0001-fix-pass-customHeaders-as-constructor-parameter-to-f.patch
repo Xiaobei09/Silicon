@@ -1,0 +1,44 @@
+From 14938b99bdcd53b4787bd6c21589466319e5193b Mon Sep 17 00:00:00 2001
+From: Xiaobei09 <xiaobei09@users.noreply.github.com>
+Date: Sun, 27 Sep 2026 13:43:49 +0800
+Subject: [PATCH 1/6] fix: pass customHeaders as constructor parameter to fix
+ scope issue
+
+---
+ dist/index.js | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/dist/index.js b/dist/index.js
+index e1faa1c..fc4124d 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -685,7 +685,7 @@ class LLMClient {
+     reasoningEffort;
+     reasoningFallbackActive = false;
+     reasoningFallbackReason;
+-    constructor(baseUrl, apiKey, model, maxOutputTokens, timeoutMs = config_1.DEFAULT_LLM_TIMEOUT_MS, maxAttempts = config_1.DEFAULT_LLM_COMPLETION_ATTEMPTS, temperature = config_1.DEFAULT_LLM_TEMPERATURE, onProgress, reasoningEffort) {
++    constructor(baseUrl, apiKey, model, maxOutputTokens, timeoutMs = config_1.DEFAULT_LLM_TIMEOUT_MS, maxAttempts = config_1.DEFAULT_LLM_COMPLETION_ATTEMPTS, temperature = config_1.DEFAULT_LLM_TEMPERATURE, onProgress, reasoningEffort, customHeaders) {
+         this.model = model;
+         this.temperature = temperature;
+         this.routerModel = (0, llm_retry_1.isOpenRouterRouterModel)(model);
+@@ -704,7 +704,7 @@ class LLMClient {
+             apiKey: apiKey || "ollama",
+             maxRetries: 0,
+             timeout: effectiveTimeoutMs,
+-            defaultHeaders: customHeaders,
++            defaultHeaders: customHeaders || {},
+         });
+         if (this.routerModel) {
+             core.info(`OpenRouter router model — ${config_1.DEFAULT_LLM_ROUTER_FIRST_CHUNK_MS / 1000}s first-chunk stall detect, ${effectiveTimeoutMs / 1000}s stream cap, provider fallbacks.`);
+@@ -1370,7 +1370,7 @@ async function run() {
+         const reviewInstructions = command === "review"
+             ? await loadReviewInstructions(octokit, gitUtils, owner, repo, prNumber, inlineReviewInstructions, reviewInstructionsFile, baseRef)
+             : "";
+-        const llm = new llm_client_1.LLMClient(baseUrl, apiKey, model, maxOutputTokens, llmTimeoutMs, undefined, llmTemperature, async (detail) => {
++        const llm = new llm_client_1.LLMClient(baseUrl, apiKey, model, maxOutputTokens, llmTimeoutMs, undefined, llmTemperature, async (detail) => { /* progress */ }, undefined, customHeaders);
+             await updateStatusComment(octokit, owner, repo, statusCommentId, buildProgressStatusBody(detail, statusCommand, statusModel));
+         }, reasoningEffort);
+         const useJsonMode = command === "review" && jsonResponseMode;
+-- 
+2.47.3
+

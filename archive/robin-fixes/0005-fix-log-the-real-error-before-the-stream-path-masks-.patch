@@ -1,0 +1,40 @@
+From a3556d9521e2260d6ffa0e6ff874f23d0204d366 Mon Sep 17 00:00:00 2001
+From: Xiaobei09 <xiaobei09@users.noreply.github.com>
+Date: Sun, 27 Sep 2026 16:17:13 +0800
+Subject: [PATCH 5/6] fix: log the real error before the stream path masks it
+ as a stall
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Any failure before the first SSE chunk was replaced with
+'OpenRouter stall: no first response within Nms', discarding the HTTP status
+and the provider's message — a 403 free-tier rejection and a genuine hang look
+identical in CI logs.
+---
+ dist/index.js | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/dist/index.js b/dist/index.js
+index 03c0442..96a1386 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -914,8 +914,13 @@ class LLMClient {
+                     ((0, llm_retry_1.isUnsupportedReasoningEffortError)(error, request.reasoning.effort) ||
+                         (0, llm_retry_1.isInvalidReasoningEffortError)(error, request.reasoning.effort) ||
+                         ((status === 400 || status === 422) && mentionsReasoningObject))) {
+-                    throw error;
+-                }
++                    throw error;
++                }
++                // Diagnosability: without this the real cause (e.g. a 403 free-tier
++                // rejection, a schema validation error) is replaced by a generic
++                // "no first response within Nms" stall message that names neither the
++                // status nor the provider's explanation.
++                core.warning(`Stream failed before the first chunk (status=${error?.status ?? "n/a"}): ${(0, llm_retry_1.errorMessage)(error)}`);
+                 throw (0, llm_retry_1.openRouterStallError)(firstChunkMs);
+             }
+             throw error;
+-- 
+2.47.3
+

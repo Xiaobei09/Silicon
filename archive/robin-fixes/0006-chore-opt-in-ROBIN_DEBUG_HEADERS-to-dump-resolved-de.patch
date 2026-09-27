@@ -1,0 +1,30 @@
+From 56453009b438d4e426db531de8ec58e33bd25b94 Mon Sep 17 00:00:00 2001
+From: Xiaobei09 <xiaobei09@users.noreply.github.com>
+Date: Sun, 27 Sep 2026 16:21:15 +0800
+Subject: [PATCH 6/6] chore: opt-in ROBIN_DEBUG_HEADERS to dump resolved
+ default headers
+
+---
+ dist/index.js | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/dist/index.js b/dist/index.js
+index 96a1386..41aa64b 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -844,6 +844,12 @@ class LLMClient {
+         }
+     }
+     async dispatch(request) {
++        if (process.env.ROBIN_DEBUG_HEADERS === "true") {
++            // Diagnostic: which User-Agent actually goes on the wire decides whether
++            // some free tiers (OpenCode Zen) accept the request at all, and the SDK's
++            // own default UA silently wins/fails depending on merge order.
++            core.info(`[debug] outgoing headers: ${JSON.stringify(this.client.defaultHeaders({}))}`);
++        }
+         return this.routerModel || this.forceStream
+             ? await this.streamChatCompletion(request)
+             : await this.blockingChatCompletion(request);
+-- 
+2.47.3
+

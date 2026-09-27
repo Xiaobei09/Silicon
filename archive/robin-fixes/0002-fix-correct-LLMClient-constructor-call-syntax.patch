@@ -1,0 +1,29 @@
+From 4b3072994f3486f4d0de84e20dca0889c095aca7 Mon Sep 17 00:00:00 2001
+From: Xiaobei09 <xiaobei09@users.noreply.github.com>
+Date: Sun, 27 Sep 2026 13:48:44 +0800
+Subject: [PATCH 2/6] fix: correct LLMClient constructor call syntax
+
+---
+ dist/index.js | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/dist/index.js b/dist/index.js
+index fc4124d..7113b4f 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1370,9 +1370,9 @@ async function run() {
+         const reviewInstructions = command === "review"
+             ? await loadReviewInstructions(octokit, gitUtils, owner, repo, prNumber, inlineReviewInstructions, reviewInstructionsFile, baseRef)
+             : "";
+-        const llm = new llm_client_1.LLMClient(baseUrl, apiKey, model, maxOutputTokens, llmTimeoutMs, undefined, llmTemperature, async (detail) => { /* progress */ }, undefined, customHeaders);
+-            await updateStatusComment(octokit, owner, repo, statusCommentId, buildProgressStatusBody(detail, statusCommand, statusModel));
+-        }, reasoningEffort);
++        const llm = new llm_client_1.LLMClient(baseUrl, apiKey, model, maxOutputTokens, llmTimeoutMs, undefined, llmTemperature, async (detail) => {
++            await updateStatusComment(octokit, owner, repo, statusCommentId, buildProgressStatusBody(detail, statusCommand, statusModel));
++        }, undefined, customHeaders);
+         const useJsonMode = command === "review" && jsonResponseMode;
+         let reviewText;
+         if (command === "summary") {
+-- 
+2.47.3
+
