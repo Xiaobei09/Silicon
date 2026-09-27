@@ -1936,9 +1936,16 @@ public class ItemTransferHub extends Block {
         @Override
         public void draw() {
             super.draw();
-            // 连线不再随方块自身绘制：改由 Trigger.drawOver 全局覆盖层统一驱动
-            // （见类顶部静态注册处）——电力节点家族式「上层绘画」，全部更新后一次画完，
+            // 连线不再随方块自身绘制：改由 Trigger.postDraw 全局覆盖层统一驱动
+            // （见类顶部静态注册处，around line 136）——全部更新后一次画完，
             // 严格位于一切方块几何之上且不受方块绘制批次影响。
+            //
+            // 【注意：这里不是也不能是 Trigger.drawOver】(2026-09-27 修正陈旧注释)
+            //   v8 渲染顺序为 …→fire(drawOver)→blocks.drawBlocks()（方块延迟上屏）
+            //   →Groups.draw→Draw.flush/sort(false)→fire(postDraw)。drawOver 时方块尚未
+            //   绘制，其缓存绘制会先 flush 队列再把本层覆盖掉——实测「常驻连线全部不可见」。
+            //   本行旧注释写的是 drawOver，与实际实现（postDraw）矛盾且违反渲染铁律，
+            //   照它"恢复"实现会直接踩回该坑，故更正。
         }
 
         /** 全局覆盖层调用：绘制本枢全部连线（普通物流色 + 中枢间粉色）。层级由调用方设定。 */
