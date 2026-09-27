@@ -1,9 +1,7 @@
 name: Robin
 
 on:
-  pull_request_target:
-    # 只在 PR 创建/重开/转正式时自动触发；去掉 synchronize —— action 默认
-    # review-on-synchronize:false（每次 push 重审会白烧免费额度且无收益）
+  pull_request:
     types: [opened, reopened, ready_for_review]
   issue_comment:
     types: [created]
@@ -17,43 +15,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 引导：PR 打开/重开/转正式时，用 GH_PAT 代发 /review 触发真实审查
-  bootstrap:
-    if: github.event_name == 'pull_request_target'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Auto-trigger review
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-          NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-          EVENT: ${{ github.event.action }}
-        run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "::warning::GH_PAT 未配置，无法自动触发审查。请在 仓库 Settings → Secrets 配置 GH_PAT（repo 权限 PAT）后重跑，或手动评论 /robin。"
-            exit 0
-          fi
-          # 去重：仅防 reopen 重复（synchronize 已移除，opened/ready_for_review 生命周期内只发生一次）。
-          # 注意：判据是「历史上存在过」，所以用户手动 /review 过之后，本 PR 后续 reopen 不会再自动审查——
-          # 这是有意的（避免刷屏），需要重审时手动评论 /review 即可。
-          existing=$(gh api "repos/$REPO/issues/$NUMBER/comments" \
-            --jq '[.[]|select(.user.login=="github-actions[bot]" and (.body|startswith("/review")))]|length')
-          if [ "$existing" -eq 0 ]; then
-            gh pr comment "$NUMBER" --repo "$REPO" --body "/review"
-            echo "Posted /review via GH_PAT (event=$EVENT)"
-          else
-            echo "Bootstrap /review already present ($existing), skip auto (use /robin to force)"
-          fi
-
-  # 真实审查：仅在 issue_comment 触发，支持维护者与 bot；放行所有权限用户手动触发
   review:
     if: >-
-      github.event.issue.pull_request != null && (
-        startsWith(github.event.comment.body, '/review') ||
-        startsWith(github.event.comment.body, '/robin')
-      ) && (
-        github.event.comment.user.login == 'github-actions[bot]' ||
-        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR", "NONE"]'), github.event.comment.author_association)
+      (
+        github.event_name == 'pull_request' &&
+        github.event.action == 'opened'
+      ) || (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request != null && (
+          startsWith(github.event.comment.body, '/review') ||
+          startsWith(github.event.comment.body, '/robin')
+        ) && (
+          github.event.comment.user.login == 'github-actions[bot]' ||
+          contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR", "NONE"]'), github.event.comment.author_association)
+        )
       )
     runs-on: ubuntu-latest
     timeout-minutes: 15
