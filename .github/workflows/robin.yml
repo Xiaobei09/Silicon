@@ -5,8 +5,13 @@ on:
   # fork PR 的 secrets 在 pull_request 下不可见（GitHub 安全机制），此时本 job 会
   # 探测到三件套为空并给出告警；维护者评论 /review 走 issue_comment 链路即可补审
   # ——该链路在 base 仓上下文运行，secrets 对 fork PR 同样可见。
+  # synchronize 在原始 bootstrap 架构下写了但从未生效：bootstrap 的去重只看
+  # 「历史上是否存在过 /review 评论」，PR 第二次推送时必然命中而 skip。删掉 bootstrap
+  # 后直连审查已无去重层，synchronize 才第一次真正起作用——推了新提交会重新审查。
+  # 草稿 PR 一律跳过（PR 还在写代码时逐次审查纯属烧配额），转正式后由
+  # ready_for_review 触发首次审查。
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review]
   issue_comment:
     types: [created]
 
@@ -23,7 +28,7 @@ jobs:
     if: >-
       (
         github.event_name == 'pull_request' &&
-        github.event.action == 'opened'
+        github.event.pull_request.draft == false
       ) || (
         github.event_name == 'issue_comment' &&
         github.event.issue.pull_request != null && (
