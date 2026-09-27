@@ -62,11 +62,12 @@ jobs:
           PORT: ${{ env.GATEWAY_PORT }}
         run: |
           nohup zengate > /tmp/zengate.log 2>&1 &
-          echo "$!" > /tmp/zengate.pid
+          start=$SECONDS
           for i in $(seq 1 60); do
             if curl -sf -m 5 "http://127.0.0.1:${GATEWAY_PORT}/v1/models" > /tmp/models.json 2>/dev/null; then
-              echo "Gateway ready after ${i}0s"
-              cat /tmp/models.json | head -c 400
+              echo "Gateway ready after $((SECONDS - start))s"
+              head -c 400 /tmp/models.json
+              echo
               exit 0
             fi
             sleep 10
@@ -77,14 +78,25 @@ jobs:
 
       - name: Smoke test gateway
         run: |
-          curl -sf -m 240 -X POST "$GATEWAY_URL/chat/completions" \
+          # 必须先落盘再判 HTTP 码：直接 `curl -sf | head -c N` 在 bash -e 下退出码取自
+          # 管道末端的 head（恒 0），网关返 4xx/5xx 时这道冒烟闸门依然会「通过」。
+          code=$(curl -s -m 240 -o /tmp/smoke.json -w '%{http_code}' \
+            -X POST "$GATEWAY_URL/chat/completions" \
             -H "Content-Type: application/json" \
-            -d '{"model":"big-pickle","messages":[{"role":"user","content":"Reply with exactly: OK"}]}' \
-            | head -c 500
+            -d '{"model":"big-pickle","messages":[{"role":"user","content":"Reply with exactly: OK"}]}')
+          echo "smoke HTTP=$code"
+          head -c 300 /tmp/smoke.json; echo
+          [ "$code" = 200 ] || { echo "::error::Gateway smoke test failed (HTTP $code)"; exit 1; }
+          grep -q '"content":"OK"' /tmp/smoke.json \
+            || { echo "::error::big-pickle did not answer OK through the gateway"; exit 1; }
 
       - name: Robin review
         uses: antongulin/robin@v2.7.2
         with:
+          # github.token 是 GitHub 自动注入的、每次运行自动轮换的内建凭据，
+          # **不是 secret**，所以 fork PR 同样拿得到（pull_request 不注入 secrets.* 这条限制
+          # 不影响它）。因此本方案对 fork PR 天然可用，无需 GH_PAT，也无需「配置不可见就跳过」
+          # 那道守卫——原先那道守卫防的正是 secrets 缺失，而现在整条链路已无 secret 依赖。
           github-token: ${{ github.token }}
           # 网关关闭了鉴权，此处仅占位；Robin 要求 apiKey 非空（空值会被兜底成 "ollama"）。
           llm-api-key: public
