@@ -90,3 +90,7 @@ jobs:
           config-file: .github/robin.yml
           review-instructions-file: .github/code-reviewer.md
           min-command-permission: triage
+          # action 自身第三道 synchronize 闸门，默认 false 会直接跳过并提示走 /review。
+          # 官方 v2.7.2 / main 的 action.yml 都有这个 input，不需要 fork 即可开启。
+          # 成本控制靠上方 concurrency(cancel-in-progress) + 草稿 PR 跳过。
+          review-on-synchronize: true
