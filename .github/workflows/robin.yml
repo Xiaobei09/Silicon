@@ -59,12 +59,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Robin review
-        uses: Xiaobei09/robin@main
+        uses: Xiaobei09/robin-custom-headers@main
         with:
           github-token: ${{ github.token }}
           llm-api-key: ${{ secrets.LLM_API_KEY }}
           llm-base-url: ${{ secrets.LLM_BASE_URL }}
           model: ${{ secrets.LLM_MODEL }}
+          custom-headers: '{"x-opencode-session":"ses_f1f1829d0ffepGs3895RABUUsJ"}'
           config-file: .github/robin.yml
           review-instructions-file: .github/code-reviewer.md
           min-command-permission: none
