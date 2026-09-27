@@ -90,6 +90,12 @@ jobs:
           llm-api-key: public
           llm-base-url: ${{ env.GATEWAY_URL }}
           model: big-pickle
+          # 关键：关闭 JSON 响应模式。原因见 review-retry.ts 的 shouldRetryStructuredReview：
+          # 它的空审查重试保护写着 `if (usedJson) return false`，即 JSON 模式下一次都不会重试。
+          # 经 zengate 网关实测 big-pickle 偶发返回字面量 `{}`（5.2s、reasoning 为空），
+          # 那会被当成「0 条发现」直接发出 "Nothing worth flagging" —— 对审查闸门是最坏的假通过。
+          # 关掉后重试保护重新生效，且实测模型更快、发现更多（43.9s/18 条 vs 241s/6 条）。
+          use-json-response-mode: false
           config-file: .github/robin.yml
           review-instructions-file: .github/code-reviewer.md
           min-command-permission: triage
