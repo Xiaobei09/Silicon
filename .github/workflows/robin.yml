@@ -76,6 +76,8 @@ jobs:
 
       - name: Robin review
         if: steps.llm.outputs.ok == 'true'
+        env:
+          ROBIN_DEBUG_HEADERS: 'true'
         uses: Xiaobei09/robin-custom-headers@main
         with:
           github-token: ${{ github.token }}
