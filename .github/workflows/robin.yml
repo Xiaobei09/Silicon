@@ -39,18 +39,19 @@ jobs:
     steps:
       # 秘钥探测：缺 LLM 三件套就不跑审查，并说明补审路径。
       # 典型触发场景 = fork PR 的 pull_request 事件（secrets 不注入）。
+      # 注：zen 免费档不需要真实凭据，_KEY 的判定值是字面量 public（见下方 with 注释）。
       - name: Check LLM configuration
         id: llm
         env:
           _BASE: ${{ secrets.LLM_BASE_URL }}
-          _KEY: ${{ secrets.LLM_API_KEY }}
+          _KEY: public
           _MODEL: ${{ secrets.LLM_MODEL }}
         run: |
           if [ -n "$_BASE" ] && [ -n "$_KEY" ] && [ -n "$_MODEL" ]; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "ok=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::LLM 三件套（LLM_BASE_URL / LLM_API_KEY / LLM_MODEL）不可见，跳过自动审查。若这是 fork PR：pull_request 事件按 GitHub 安全机制不注入 secrets，请维护者评论 /review 走 issue_comment 链路补审（该链路在 base 仓上下文运行，fork PR 同样可审）。若本仓也缺 secret，请在 Settings → Secrets 补齐。"
+            echo "::warning::LLM 配置（LLM_BASE_URL / LLM_MODEL）不可见，跳过自动审查。若这是 fork PR：pull_request 事件按 GitHub 安全机制不注入 secrets，请维护者评论 /review 走 issue_comment 链路补审（该链路在 base 仓上下文运行，fork PR 同样可审）。若本仓也缺 secret，请在 Settings → Secrets 补齐。"
           fi
 
       # zen 端点要求带 x-opencode-session；免费档不校验 session 真实性（实测随机 / 真实 /
@@ -69,7 +70,11 @@ jobs:
         uses: Xiaobei09/robin-custom-headers@main
         with:
           github-token: ${{ github.token }}
-          llm-api-key: ${{ secrets.LLM_API_KEY }}
+          # zen 免费档不使用凭据。OpenAI SDK 要求 apiKey 非空，空值会被 robin 兜底成
+          # "ollama"（dist L704 `apiKey: apiKey || "ollama"`）并被 zen 拒为
+          # "Invalid API key"（实测）。字面量 public 是能被 zen 接受的占位串，非真实密钥，
+          # 故直接写死、不进 secrets —— 仓库里不存在任何 LLM 凭据。
+          llm-api-key: public
           llm-base-url: ${{ secrets.LLM_BASE_URL }}
           model: ${{ secrets.LLM_MODEL }}
           custom-headers: '{"x-opencode-session":"${{ steps.session.outputs.id }}"}'
