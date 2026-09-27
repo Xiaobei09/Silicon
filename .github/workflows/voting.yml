@@ -13,18 +13,40 @@ on:
   pull_request_review:
     types: [submitted]
 
-permissions:
-  pull-requests: write
-  issues: write
-  contents: write # gh pr merge 需要
-
+# ⚠️ 这里【不】设顶层 permissions。
+# 顶层 permissions 会被每个 job 继承：一旦为了 automerge 需要 contents: write 而写在顶层，
+# 跑第三方 action 的 democracy job 也会拿到 contents: write。
+# 而该 action 来自个人 fork 的浮动 ref（Xiaobei09/git-democracy@main）——
+# 任何能往那个 fork 推东西的人，都会在每个 PR 上拿到本仓的 contents: write。
+# 故权限一律下沉到 job 级，且只有真正需要合并的 automerge 才给 contents: write。
+#
+# ⚠️ 本文件用 pull_request_target：它以【本仓】权限运行，且能被任意 fork 的 PR 触发，
+# 是权限面最大的触发器。因此下面两处安全属性必须显式写出，不能依赖默认值：
+#   ① 每一个 checkout 都显式钉 ref: github.event.pull_request.base.sha（见各 job）
+#      ——检 base 代码而不是 PR 代码。默认行为确实如此（实测 checkout 日志为
+#      `git checkout --force -B test refs/remotes/origin/test`），但那是隐式的；
+#      哪天有人顺手加了 ref: github.event.pull_request.head.sha，就变成
+#      「外部贡献者用自己 PR 里的代码 + contents: write 跑在本仓」= 远程代码执行。
+#      写成显式的，日后 review 时一眼能看见这条边界。
+#   ② 票数与门槛只从 base 检出（.voting.yml / .voters.yml 同理），
+#      外部贡献者无法通过改 PR 里的配置文件来放宽门槛或给自己加权。
 jobs:
   # 真实票数评估 + 投票评论。context 名必须保持 democracy：
   # 上游 ruleset 22253791 登记的 required context 就是这个名字，改名会直接让规则失配。
   democracy:
     runs-on: ubuntu-latest
+    # 只读内容 + 写 PR/issue 评论。刻意【不给】contents: write：本 job 跑的是第三方
+    # action，没有理由让它拿到内容写权限。注意：一旦在 job 级写 permissions，
+    # 未列出的权限一律变成 none，所以 checkout 需要的 contents: read 必须显式列出。
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 见文件头 ①：显式钉在 base 提交上，不检 PR 代码
+          ref: ${{ github.event.pull_request.base.sha }}
       - name: Evaluate vote
         uses: Xiaobei09/git-democracy@main
         with:
@@ -39,8 +61,15 @@ jobs:
     needs: democracy
     if: always() && needs.democracy.result == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      # 唯一的 contents: write 持有者。合并需要它；读 PR 需要 pull-requests: read。
+      contents: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 见文件头 ①：复核脚本必须来自 base，不能是 PR 作者提供的版本
+          ref: ${{ github.event.pull_request.base.sha }}
       - name: Re-verify vote independently, then squash-merge
         env:
           GH_TOKEN: ${{ github.token }}
