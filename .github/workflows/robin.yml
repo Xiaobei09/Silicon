@@ -1,15 +1,6 @@
 name: Robin
 
 on:
-  # 自动审查走 pull_request（不带 secrets 上下文给 fork PR，但无需 GH_PAT 中转）。
-  # fork PR 的 secrets 在 pull_request 下不可见（GitHub 安全机制），此时本 job 会
-  # 探测到三件套为空并给出告警；维护者评论 /review 走 issue_comment 链路即可补审
-  # ——该链路在 base 仓上下文运行，secrets 对 fork PR 同样可见。
-  # synchronize 在原始 bootstrap 架构下写了但从未生效：bootstrap 的去重只看
-  # 「历史上是否存在过 /review 评论」，PR 第二次推送时必然命中而 skip。删掉 bootstrap
-  # 后直连审查已无去重层，synchronize 才第一次真正起作用——推了新提交会重新审查。
-  # 草稿 PR 一律跳过（PR 还在写代码时逐次审查纯属烧配额），转正式后由
-  # ready_for_review 触发首次审查。
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   issue_comment:
@@ -40,57 +31,108 @@ jobs:
         )
       )
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 超时预算必须覆盖最坏路径，否则失败时连网关日志都来不及打：
+    #   就绪探测上限 600s(10m) + 冒烟 240s(4m) + robin 3 次尝试 × llm-timeout 600s(30m) = 44m
+    # 取 50 分钟留余量。实测正常路径仅 2-4 分钟。
+    timeout-minutes: 50
+    env:
+      # 单一来源：就绪检查与 robin 的 model: 都读这个值，避免两处漂移
+      MODEL: big-pickle
+      GATEWAY_PORT: '8083'
+      GATEWAY_URL: http://127.0.0.1:8083/v1
     steps:
-      # 秘钥探测：缺 LLM 三件套就不跑审查，并说明补审路径。
-      # 典型触发场景 = fork PR 的 pull_request 事件（secrets 不注入）。
-      # 注：zen 免费档不需要真实凭据，_KEY 的判定值是字面量 public（见下方 with 注释）。
-      - name: Check LLM configuration
-        id: llm
-        env:
-          _BASE: ${{ secrets.LLM_BASE_URL }}
-          _KEY: public
-          _MODEL: ${{ secrets.LLM_MODEL }}
-        run: |
-          if [ -n "$_BASE" ] && [ -n "$_KEY" ] && [ -n "$_MODEL" ]; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::LLM 配置（LLM_BASE_URL / LLM_MODEL）不可见，跳过自动审查。若这是 fork PR：pull_request 事件按 GitHub 安全机制不注入 secrets，请维护者评论 /review 走 issue_comment 链路补审（该链路在 base 仓上下文运行，fork PR 同样可审）。若本仓也缺 secret，请在 Settings → Secrets 补齐。"
-          fi
+      # ── 网关方案：让请求经由真实 opencode serve 进程上行 ──────────────────────
+      # big-pickle 免费档有五道准入（stream / ≥2 tools / X-Session-ID / opencode UA / 来源），
+      # GitHub runner 即便满足前四道仍恒 403。zengate 通过拉起真实的 opencode serve 子进程
+      # 与 Zen 通信，不模拟客户端，因此绕开的是「来源」那一道而非任何配额/限流检查。
+      # 网关自身鉴权用 ALLOW_NO_AUTH 关闭（只监听 127.0.0.1），故全链路无任何 API key。
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
 
-      # zen 免费档的实测准入条件（2026-09-27 背靠背对照，间隔 15s 可复现）：
-      #   必需 —— stream:true（false 必失败）、tools ≥2 个（0/1 个必失败）、X-Session-ID 头
-      #   非必需 —— HTTP-Referer / X-Title / Authorization（无 key 可用）
-      # 这里发全套（含非必需项）以防上游日后收紧判定；session id 每次运行随机生成。
-      - name: Generate LLM request headers
-        if: steps.llm.outputs.ok == 'true'
-        id: session
+      - name: Install zengate
         run: |
-          sid="ses_$(openssl rand -hex 6)$(LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 14)"
-          {
-            echo "id=$sid"
-            echo 'json={"X-Session-ID":"'"$sid"'","HTTP-Referer":"https://opencode.ai/","X-Title":"opencode","User-Agent":"opencode/1.18.32"}'
-          } >> "$GITHUB_OUTPUT"
-          echo "Generated session: $sid"
+          # 固定大版本，避免上游发新版后 CI 行为静默改变；顺带把实际版本打进日志便于排查。
+          # zengate 自带 opencode-ai 依赖（package.json: "opencode-ai": "^1.18.32"），
+          # 且 binary.js 的解析顺序是 OPENCODE_PATH → bundled 包 → PATH。
+          # 因此这里**刻意不设 OPENCODE_PATH**——设了反而会屏蔽掉 zengate 自己锁定的那份依赖，
+          # 把版本契约从 npm 的 semver 检查挪到"curl 装的 latest 恰好也是 1.x"这种巧合上。
+          npm install -g zengate@^1
+          echo "zengate installed: $(npm ls -g zengate --depth=0 2>/dev/null | tail -1 | tr -s ' ')"
+          echo "opencode bundled with zengate: $(npm ls -g opencode-ai --depth=0 2>/dev/null | tail -1 | tr -s ' ')"
+
+      - name: Start zengate gateway
+        env:
+          ALLOW_NO_AUTH: 'true'
+          HOST: 127.0.0.1
+          PORT: ${{ env.GATEWAY_PORT }}
+        run: |
+          nohup zengate > /tmp/zengate.log 2>&1 &
+          start=$SECONDS
+          for i in $(seq 1 60); do
+            if curl -sf -m 5 "http://127.0.0.1:${GATEWAY_PORT}/v1/models" > /tmp/models.json 2>/dev/null; then
+              echo "Gateway ready after $((SECONDS - start))s"
+              # OpenCode Zen 的免费模型目录会随时间变动（实测 2026-09-27 两天内就换过一批）。
+              # 在这里显式校验目标模型仍在售，否则下游只会看到「冒烟没答 OK」这种误导性报错。
+              if ! grep -q "\"id\":\"$MODEL\"" /tmp/models.json; then
+                echo "::error::Model '$MODEL' is not in the gateway's current catalog."
+                echo "Available: $(tr ',' '\n' < /tmp/models.json | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | tr '\n' ' ')"
+                echo "Zen rotates its free catalog; update 'model:' in this workflow to a currently listed id."
+                exit 1
+              fi
+              head -c 400 /tmp/models.json
+              echo
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Gateway did not become ready in 600s"
+          cat /tmp/zengate.log
+          exit 1
+
+      - name: Smoke test gateway
+        env:
+          MODEL: ${{ env.MODEL }}
+        run: |
+          # 必须先落盘再判 HTTP 码：直接 `curl -sf | head -c N` 在 bash -e 下退出码取自
+          # 管道末端的 head（恒 0），网关返 4xx/5xx 时这道冒烟闸门依然会「通过」。
+          # model 取自 $MODEL（与 robin 同一来源），不要在此硬编码，否则改了 MODEL
+          # 之后冒烟会去打另一个模型并报出误导性的「did not answer OK」。
+          body=$(printf '{"model":"%s","messages":[{"role":"user","content":"Reply with exactly: OK"}]}' "$MODEL")
+          code=$(curl -s -m 240 -o /tmp/smoke.json -w '%{http_code}' \
+            -X POST "$GATEWAY_URL/chat/completions" \
+            -H "Content-Type: application/json" \
+            -d "$body")
+          echo "smoke HTTP=$code (model=$MODEL)"
+          head -c 300 /tmp/smoke.json; echo
+          [ "$code" = 200 ] || { echo "::error::Gateway smoke test failed (HTTP $code)"; exit 1; }
+          grep -q '"content":"OK"' /tmp/smoke.json \
+            || { echo "::error::$MODEL did not answer OK through the gateway"; exit 1; }
 
       - name: Robin review
-        if: steps.llm.outputs.ok == 'true'
-        uses: Xiaobei09/robin-custom-headers@main
+        uses: antongulin/robin@v2.7.2
         with:
+          # github.token 是 GitHub 自动注入的、每次运行自动轮换的内建凭据，
+          # **不是 secret**，所以 fork PR 同样拿得到（pull_request 不注入 secrets.* 这条限制
+          # 不影响它）。因此本方案对 fork PR 天然可用，无需 GH_PAT，也无需「配置不可见就跳过」
+          # 那道守卫——原先那道守卫防的正是 secrets 缺失，而现在整条链路已无 secret 依赖。
           github-token: ${{ github.token }}
-          # zen 免费档不使用凭据。OpenAI SDK 要求 apiKey 非空，空值会被 robin 兜底成
-          # "ollama"（dist L704 `apiKey: apiKey || "ollama"`）并被 zen 拒为
-          # "Invalid API key"（实测）。字面量 public 是能被 zen 接受的占位串，非真实密钥，
-          # 故直接写死、不进 secrets —— 仓库里不存在任何 LLM 凭据。
+          # 网关关闭了鉴权，此处仅占位；Robin 要求 apiKey 非空（空值会被兜底成 "ollama"）。
           llm-api-key: public
-          llm-base-url: ${{ secrets.LLM_BASE_URL }}
-          model: ${{ secrets.LLM_MODEL }}
-          custom-headers: ${{ steps.session.outputs.json }}
+          llm-base-url: ${{ env.GATEWAY_URL }}
+          model: ${{ env.MODEL }}
+          # 关键：关闭 JSON 响应模式。原因见 review-retry.ts 的 shouldRetryStructuredReview：
+          # 它的空审查重试保护写着 `if (usedJson) return false`，即 JSON 模式下一次都不会重试。
+          # 经 zengate 网关实测 big-pickle 偶发返回字面量 `{}`（5.2s、reasoning 为空），
+          # 那会被当成「0 条发现」直接发出 "Nothing worth flagging" —— 对审查闸门是最坏的假通过。
+          # 关掉后重试保护重新生效，且实测模型更快、发现更多（43.9s/18 条 vs 241s/6 条）。
+          use-json-response-mode: false
           config-file: .github/robin.yml
           review-instructions-file: .github/code-reviewer.md
           min-command-permission: triage
-          # action 自身第三道 synchronize 闸门，默认 false 会直接跳过并提示走 /review。
-          # 官方 v2.7.2 / main 的 action.yml 都有这个 input，不需要 fork 即可开启。
-          # 成本控制靠上方 concurrency(cancel-in-progress) + 草稿 PR 跳过。
           review-on-synchronize: true
+
+      - name: Gateway log
+        if: always()
+        run: tail -40 /tmp/zengate.log 2>&1 || true
