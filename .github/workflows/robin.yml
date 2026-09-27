@@ -34,6 +34,8 @@ jobs:
     # zengate 冷启动（装 opencode + 起 serve）约 2-4 分钟，单次审查经网关再 +6-9k token 提示词
     timeout-minutes: 25
     env:
+      # 单一来源：就绪检查与 robin 的 model: 都读这个值，避免两处漂移
+      MODEL: big-pickle
       GATEWAY_PORT: '8083'
       GATEWAY_URL: http://127.0.0.1:8083/v1
     steps:
@@ -66,6 +68,14 @@ jobs:
           for i in $(seq 1 60); do
             if curl -sf -m 5 "http://127.0.0.1:${GATEWAY_PORT}/v1/models" > /tmp/models.json 2>/dev/null; then
               echo "Gateway ready after $((SECONDS - start))s"
+              # OpenCode Zen 的免费模型目录会随时间变动（实测 2026-09-27 两天内就换过一批）。
+              # 在这里显式校验目标模型仍在售，否则下游只会看到「冒烟没答 OK」这种误导性报错。
+              if ! grep -q "\"id\":\"$MODEL\"" /tmp/models.json; then
+                echo "::error::Model '$MODEL' is not in the gateway's current catalog."
+                echo "Available: $(tr ',' '\n' < /tmp/models.json | grep -o '"id":"[^"]*"' | cut -d'"' -f4 | tr '\n' ' ')"
+                echo "Zen rotates its free catalog; update 'model:' in this workflow to a currently listed id."
+                exit 1
+              fi
               head -c 400 /tmp/models.json
               echo
               exit 0
@@ -101,7 +111,7 @@ jobs:
           # 网关关闭了鉴权，此处仅占位；Robin 要求 apiKey 非空（空值会被兜底成 "ollama"）。
           llm-api-key: public
           llm-base-url: ${{ env.GATEWAY_URL }}
-          model: big-pickle
+          model: ${{ env.MODEL }}
           # 关键：关闭 JSON 响应模式。原因见 review-retry.ts 的 shouldRetryStructuredReview：
           # 它的空审查重试保护写着 `if (usedJson) return false`，即 JSON 模式下一次都不会重试。
           # 经 zengate 网关实测 big-pickle 偶发返回字面量 `{}`（5.2s、reasoning 为空），
