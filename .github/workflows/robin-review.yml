@@ -58,12 +58,17 @@ jobs:
       - name: Load PR metadata
         run: |
           set -euo pipefail
+          # ⚠️ heredoc 必须用 <<'PY' 保持单引号（防 shell 插值），因此 $GITHUB_ENV
+          #   不会被 shell 展开——必须经 os.environ 读取（实测：写 '$GITHUB_ENV'
+          #   字面文件名 + 'a' 模式会静默建一个空文件，GITHUB_ENV 没写进去，
+          #   下一行 echo $REVIEW_PR 在 set -u 下 unbound variable 杀掉整步）。
           python3 - <<'PY'
           import json
+          import os
           m = json.load(open('collected/meta.json'))
           print('PR=%s head_sha=%s draft=%s head_repo=%s' % (
               m['number'], m['head_sha'], m['draft'], m['head_repo_full_name']))
-          with open('$GITHUB_ENV', 'a') as f:
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write('REVIEW_PR=%s\n' % m['number'])
               f.write('REVIEW_HEAD_SHA=%s\n' % m['head_sha'])
           PY
