@@ -1,0 +1,28 @@
+name: exp-required-check-semantics
+
+# 受控实验：制造「同一 head SHA 上、同名 context 存在一条较早的 FAILURE 与一条较晚的 SUCCESS」，
+# 用来判定 GitHub required status check 的语义是「取最新一条」还是「并集里任一失败即阻塞」。
+# 仅存在于 exp/required-check-semantics 分支，不影响 fork 的 test。
+on:
+  push:
+    branches:
+      - exp/required-check-semantics
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  democracy:
+    name: democracy
+    runs-on: ubuntu-latest
+    steps:
+      - name: fail on push / succeed on dispatch
+        run: |
+          echo "event=${{ github.event_name }} sha=${{ github.sha }}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "故意在 push 上失败 —— 造一条【较早的】FAILURE check run"
+            exit 1
+          fi
+          echo "在 workflow_dispatch 上成功 —— 造一条【较晚的】SUCCESS check run"
+          exit 0
